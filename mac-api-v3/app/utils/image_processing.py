@@ -21,3 +21,4 @@ def convert_to_supported_format(image: Image.Image) -> Image.Image:
         image = image.resize((new_width, new_height), Image.LANCZOS)
     
     return image
+

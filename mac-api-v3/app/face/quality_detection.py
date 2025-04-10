@@ -6,10 +6,15 @@ import os
 import time
 from typing import Dict, Any
 from PIL import Image
+from app.utils.image_utils import get_image_dimensions, calculate_fast_rate, calculate_rack_cooling_rate
 
 def detect_face_quality(image: Image.Image) -> Dict[str, Any]:
  
     start_time = time.time()
+    
+    # Get image dimensions
+    dimensions = get_image_dimensions(image)
+    width, height = dimensions["width"], dimensions["height"]
     
     # Save image to a temporary file
     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
@@ -78,11 +83,18 @@ def detect_face_quality(image: Image.Image) -> Dict[str, Any]:
         if face_count > 0:
             avg_quality = avg_quality / face_count
         
+        # Calculate rates
+        fast_rate = calculate_fast_rate(width, height)
+        rack_cooling_rate = calculate_rack_cooling_rate(width, height, face_count)
+        
         # Prepare result data
         result = {
             "face_count": face_count,
             "faces": face_results,
             "average_quality": float(avg_quality),
+            "dimensions": dimensions,
+            "fast_rate": fast_rate,
+            "rack_cooling_rate": rack_cooling_rate,
             "processing_time": time.time() - start_time
         }
         
@@ -94,6 +106,9 @@ def detect_face_quality(image: Image.Image) -> Dict[str, Any]:
             "face_count": 0,
             "faces": [],
             "average_quality": 0.0,
+            "dimensions": dimensions,
+            "fast_rate": calculate_fast_rate(width, height),
+            "rack_cooling_rate": calculate_rack_cooling_rate(width, height, 0),
             "processing_time": time.time() - start_time
         }
     finally:

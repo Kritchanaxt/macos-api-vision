@@ -1,7 +1,9 @@
 import numpy as np
 import cv2
 from PIL import Image
-from typing import List, Dict, Tuple, Optional
+import time
+from typing import List, Dict, Tuple, Optional, Any
+from app.utils.image_utils import get_image_dimensions, calculate_fast_rate, calculate_rack_cooling_rate
 
 def order_points(pts: np.ndarray) -> np.ndarray:
    
@@ -22,8 +24,10 @@ def order_points(pts: np.ndarray) -> np.ndarray:
     
     return rect
 
-def four_point_transform(image: Image.Image, pts: List[Dict[str, float]]) -> Image.Image:
+def four_point_transform(image: Image.Image, pts: List[Dict[str, float]]) -> Tuple[Image.Image, Dict[str, Any]]:
    
+    start_time = time.time()
+    
     # Convert PIL Image to NumPy array
     img_np = np.array(image)
     
@@ -63,14 +67,47 @@ def four_point_transform(image: Image.Image, pts: List[Dict[str, float]]) -> Ima
     # Convert back to PIL Image
     warped_pil = Image.fromarray(warped)
     
-    return warped_pil
+    # Get dimensions of transformed image
+    dimensions = get_image_dimensions(warped_pil)
+    
+    # Calculate rates
+    fast_rate = calculate_fast_rate(dimensions["width"], dimensions["height"])
+    rack_cooling_rate = calculate_rack_cooling_rate(dimensions["width"], dimensions["height"])
+    
+    # Calculate processing time
+    processing_time = time.time() - start_time
+    
+    # Prepare metadata
+    metadata = {
+        "dimensions": dimensions,
+        "fast_rate": fast_rate,
+        "rack_cooling_rate": rack_cooling_rate,
+        "processing_time": processing_time
+    }
+    
+    return warped_pil, metadata
 
-def wrap_card_perspective(image: Image.Image, corners: List[Dict[str, float]]) -> Optional[Image.Image]:
+def wrap_card_perspective(image: Image.Image, corners: List[Dict[str, float]]) -> Tuple[Optional[Image.Image], Dict[str, Any]]:
    
+    start_time = time.time()
+    
     try:
         # Perform perspective transformation
-        warped = four_point_transform(image, corners)
-        return warped
+        warped, metadata = four_point_transform(image, corners)
+        
+        # Update processing time to include the full function execution
+        metadata["processing_time"] = time.time() - start_time
+        
+        return warped, metadata
     except Exception as e:
         print(f"Error adjusting perspective: {str(e)}")
-        return None
+        # Return original image dimensions in error case
+        dimensions = get_image_dimensions(image)
+        metadata = {
+            "error": str(e),
+            "dimensions": dimensions,
+            "fast_rate": calculate_fast_rate(dimensions["width"], dimensions["height"]),
+            "rack_cooling_rate": calculate_rack_cooling_rate(dimensions["width"], dimensions["height"]),
+            "processing_time": time.time() - start_time
+        }
+        return None, metadata

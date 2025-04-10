@@ -78,6 +78,19 @@ async def ocr_endpoint(
         
         # Process OCR
         ocr_result = perform_ocr(processed_image, language_list, recognition_level)
+
+        # Make sure the result has all required fields
+        if "dimensions" not in ocr_result:
+            # Use default values if missing
+            ocr_result["dimensions"] = get_image_dimensions(processed_image)
+        if "fast_rate" not in ocr_result:
+            ocr_result["fast_rate"] = calculate_fast_rate(ocr_result["dimensions"]["width"], 
+                                                          ocr_result["dimensions"]["height"])
+        if "rack_cooling_rate" not in ocr_result:
+            ocr_result["rack_cooling_rate"] = calculate_rack_cooling_rate(
+                ocr_result["dimensions"]["width"], ocr_result["dimensions"]["height"], 0)
+        if "text_object_count" not in ocr_result:
+            ocr_result["text_object_count"] = 0
         
         # Save image to output folder
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -92,6 +105,10 @@ async def ocr_endpoint(
             recognized_text=ocr_result["text"],
             confidence=ocr_result["confidence"],
             languages_detected=ocr_result["languages_detected"],
+            dimensions=ocr_result["dimensions"],
+            fast_rate=ocr_result["fast_rate"],
+            rack_cooling_rate=ocr_result["rack_cooling_rate"],
+            text_object_count=ocr_result["text_object_count"],
             processing_time=ocr_result["processing_time"],
             output_path=ocr_result["output_path"]
         )
@@ -207,7 +224,7 @@ async def card_perspective_endpoint(
             raise HTTPException(status_code=404, detail=f"Card with ID {card_id} not found")
         
         # Adjust card perspective
-        warped_card = wrap_card_perspective(processed_image, selected_card["corners"])
+        warped_card, metadata = wrap_card_perspective(processed_image, selected_card["corners"])
         
         if warped_card is None:
             raise HTTPException(status_code=500, detail="Could not adjust card perspective")
@@ -229,6 +246,10 @@ async def card_perspective_endpoint(
                 "format": "base64",
                 "width": warped_card.width,
                 "height": warped_card.height,
+                "dimensions": metadata["dimensions"],
+                "fast_rate": metadata["fast_rate"],
+                "rack_cooling_rate": metadata["rack_cooling_rate"],
+                "processing_time": metadata["processing_time"],
                 "output_path": f"/output/{filename}"
             })
         else:
@@ -236,14 +257,21 @@ async def card_perspective_endpoint(
             return FileResponse(
                 output_path,
                 media_type="image/png",
-                headers={"X-Output-Path": f"/output/{filename}"}
+                headers={
+                    "X-Output-Path": f"/output/{filename}",
+                    "X-Width": str(warped_card.width),
+                    "X-Height": str(warped_card.height),
+                    "X-Fast-Rate": str(metadata["fast_rate"]),
+                    "X-Rack-Cooling-Rate": str(metadata["rack_cooling_rate"]),
+                    "X-Processing-Time": str(metadata["processing_time"])
+                }
             )
             
     except HTTPException as he:
         raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error adjusting card perspective: {str(e)}")
-
+    
 # Add this section to run the app directly
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

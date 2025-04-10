@@ -5,10 +5,17 @@ import time
 import os
 import tempfile
 from typing import List, Dict, Any
+from PIL import Image
+from app.utils.image_utils import get_image_dimensions, calculate_fast_rate, calculate_rack_cooling_rate
+
 
 def process_image_with_vision(image, languages: List[str], recognition_level: str = "accurate") -> Dict[str, Any]:
    
     start_time = time.time()
+    
+    # Get image dimensions
+    dimensions = get_image_dimensions(image)
+    width, height = dimensions["width"], dimensions["height"]
     
     # Save image to a temporary file
     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
@@ -44,8 +51,10 @@ def process_image_with_vision(image, languages: List[str], recognition_level: st
         recognized_text = ""
         confidence_sum = 0
         detected_languages = set()
+        text_object_count = 0
         
         if results:
+            text_object_count = len(results)
             for result in results:
                 # Add recognized text
                 recognized_text += result.text() + "\n"
@@ -61,10 +70,18 @@ def process_image_with_vision(image, languages: List[str], recognition_level: st
         # Calculate average confidence
         avg_confidence = confidence_sum / len(results) if results else 0
         
+        # Calculate rates
+        fast_rate = calculate_fast_rate(width, height)
+        rack_cooling_rate = calculate_rack_cooling_rate(width, height, text_object_count)
+        
         return {
             "text": recognized_text.strip(),
             "confidence": float(avg_confidence),
             "languages_detected": list(detected_languages),
+            "dimensions": dimensions,
+            "fast_rate": fast_rate,
+            "rack_cooling_rate": rack_cooling_rate,
+            "text_object_count": text_object_count,
             "processing_time": time.time() - start_time
         }
     
@@ -73,6 +90,10 @@ def process_image_with_vision(image, languages: List[str], recognition_level: st
             "text": f"Error occurred: {str(e)}",
             "confidence": 0.0,
             "languages_detected": [],
+            "dimensions": dimensions,
+            "fast_rate": calculate_fast_rate(width, height),
+            "rack_cooling_rate": calculate_rack_cooling_rate(width, height, 0),
+            "text_object_count": 0,
             "processing_time": time.time() - start_time
         }
     finally:

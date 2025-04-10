@@ -7,10 +7,15 @@ import os
 import time
 from typing import Dict, Any, List, Tuple
 from PIL import Image
+from app.utils.image_utils import get_image_dimensions, calculate_fast_rate, calculate_rack_cooling_rate
 
 def detect_card(image: Image.Image) -> Dict[str, Any]:
     
     start_time = time.time()
+    
+    # Get image dimensions
+    dimensions = get_image_dimensions(image)
+    width, height = dimensions["width"], dimensions["height"]
     
     # Save image to a temporary file
     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
@@ -62,9 +67,17 @@ def detect_card(image: Image.Image) -> Dict[str, Any]:
                 
                 cards.append(card_data)
         
+        # Calculate rates
+        card_count = len(cards)
+        fast_rate = calculate_fast_rate(width, height)
+        rack_cooling_rate = calculate_rack_cooling_rate(width, height, card_count)
+        
         return {
-            "card_count": len(cards),
+            "card_count": card_count,
             "cards": cards,
+            "dimensions": dimensions,
+            "fast_rate": fast_rate,
+            "rack_cooling_rate": rack_cooling_rate,
             "processing_time": time.time() - start_time
         }
     
@@ -73,6 +86,9 @@ def detect_card(image: Image.Image) -> Dict[str, Any]:
             "error": f"Error occurred: {str(e)}",
             "card_count": 0,
             "cards": [],
+            "dimensions": dimensions,
+            "fast_rate": calculate_fast_rate(width, height),
+            "rack_cooling_rate": calculate_rack_cooling_rate(width, height, 0),
             "processing_time": time.time() - start_time
         }
     finally:
