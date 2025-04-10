@@ -1,0 +1,9 @@
+fastapi==0.104.1
+uvicorn==0.23.2
+python-multipart==0.0.6
+Pillow==10.0.0
+numpy==1.25.2
+PyObjC==9.2
+PyObjC-core==9.2
+opencv-python==4.8.0.74
+numpy==1.25.2
