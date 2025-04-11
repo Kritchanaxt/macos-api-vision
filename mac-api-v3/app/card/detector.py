@@ -6,16 +6,19 @@ import tempfile
 import os
 import time
 from typing import Dict, Any, List, Tuple
-from PIL import Image
+from PIL import Image, ImageDraw
 from app.utils.image_utils import get_image_dimensions, calculate_fast_rate, calculate_rack_cooling_rate
 
 def detect_card(image: Image.Image) -> Dict[str, Any]:
-    
     start_time = time.time()
     
     # Get image dimensions
     dimensions = get_image_dimensions(image)
     width, height = dimensions["width"], dimensions["height"]
+    
+    # Create a copy of the image for drawing
+    output_image = image.copy()
+    draw = ImageDraw.Draw(output_image)
     
     # Save image to a temporary file
     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
@@ -49,8 +52,42 @@ def detect_card(image: Image.Image) -> Dict[str, Any]:
                 rectangle_box = rectangle_observation.boundingBox()
                 confidence = rectangle_observation.confidence()
                 
+                # Convert normalized coordinates (0-1) to pixel coordinates
+                x = int(rectangle_box.origin.x * width)
+                y = int(rectangle_box.origin.y * height)
+                w = int(rectangle_box.size.width * width)
+                h = int(rectangle_box.size.height * height)
+                
+                # Draw rectangle on image
+                # Vision coordinates have origin at bottom-left, PIL has origin at top-left
+                # Need to convert the y-coordinate
+                rect_y = height - y - h
+                
+                # Select color based on confidence
+                if confidence > 0.8:
+                    box_color = (0, 255, 0)  # High confidence - green
+                elif confidence > 0.5:
+                    box_color = (255, 255, 0)  # Medium confidence - yellow
+                else:
+                    box_color = (255, 0, 0)  # Low confidence - red
+                
+                # Draw rectangle with 3-pixel width
+                draw.rectangle([x, rect_y, x + w, rect_y + h], outline=box_color, width=3)
+                
+                # Add card ID and confidence
+                draw.text((x, rect_y - 20), f"Card #{i+1} ({confidence:.2f})", fill=box_color)
+                
                 # Convert to 4 corner coordinates
                 corners = _convert_bounding_box_to_corners(rectangle_box)
+                
+                # Draw corners as small circles
+                corner_radius = 5
+                for corner in corners:
+                    corner_x = int(corner["x"] * width)
+                    corner_y = height - int(corner["y"] * height)  # Convert to PIL coordinates
+                    draw.ellipse((corner_x - corner_radius, corner_y - corner_radius, 
+                                  corner_x + corner_radius, corner_y + corner_radius), 
+                                  fill=box_color)
                 
                 # Add card data to results
                 card_data = {
@@ -78,7 +115,8 @@ def detect_card(image: Image.Image) -> Dict[str, Any]:
             "dimensions": dimensions,
             "fast_rate": fast_rate,
             "rack_cooling_rate": rack_cooling_rate,
-            "processing_time": time.time() - start_time
+            "processing_time": time.time() - start_time,
+            "output_image": output_image  # Return the image with bounding boxes
         }
     
     except Exception as e:
@@ -89,7 +127,8 @@ def detect_card(image: Image.Image) -> Dict[str, Any]:
             "dimensions": dimensions,
             "fast_rate": calculate_fast_rate(width, height),
             "rack_cooling_rate": calculate_rack_cooling_rate(width, height, 0),
-            "processing_time": time.time() - start_time
+            "processing_time": time.time() - start_time,
+            "output_image": image  # Return original image in case of error
         }
     finally:
         # Delete temporary file
@@ -97,7 +136,6 @@ def detect_card(image: Image.Image) -> Dict[str, Any]:
             os.unlink(temp_filename)
 
 def _convert_bounding_box_to_corners(bbox) -> List[Dict[str, float]]:
-
     # Extract bounding box values
     x = float(bbox.origin.x)
     y = float(bbox.origin.y)

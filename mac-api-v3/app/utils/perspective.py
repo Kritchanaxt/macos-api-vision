@@ -1,41 +1,67 @@
 import numpy as np
 import cv2
-from PIL import Image
+from PIL import Image, ImageDraw
 import time
 from typing import List, Dict, Tuple, Optional, Any
 from app.utils.image_utils import get_image_dimensions, calculate_fast_rate, calculate_rack_cooling_rate
 
 def order_points(pts: np.ndarray) -> np.ndarray:
-   
     # Initialize empty array
     rect = np.zeros((4, 2), dtype="float32")
     
-    # Top-left point will have the smallest sum of coordinates
-    # Bottom-right point will have the largest sum of coordinates
+    # Sum the (x, y) coordinates
     s = pts.sum(axis=1)
+    # Top-left point will have the smallest sum
     rect[0] = pts[np.argmin(s)]
+    # Bottom-right point will have the largest sum
     rect[2] = pts[np.argmax(s)]
     
-    # Top-right point will have the smallest difference of coordinates
-    # Bottom-left point will have the largest difference of coordinates
+    # Compute the difference between coordinates
     diff = np.diff(pts, axis=1)
+    # Top-right point will have the smallest difference
     rect[1] = pts[np.argmin(diff)]
+    # Bottom-left point will have the largest difference
     rect[3] = pts[np.argmax(diff)]
     
     return rect
 
 def four_point_transform(image: Image.Image, pts: List[Dict[str, float]]) -> Tuple[Image.Image, Dict[str, Any]]:
-   
+    """
+    Apply perspective transformation to obtain a top-down view of a card
+    """
     start_time = time.time()
     
     # Convert PIL Image to NumPy array
     img_np = np.array(image)
     
     # Convert coordinate list to NumPy array
-    points = np.array([[p["x"] * image.width, p["y"] * image.height] for p in pts], dtype="float32")
+    # These are normalized coordinates (0-1), convert to pixel coordinates
+    points = np.array([[p["x"] * image.width, (1-p["y"]) * image.height] for p in pts], dtype="float32")
     
-    # Order points
+    # Create a copy of the original image to draw corner points
+    debug_image = image.copy()
+    draw = ImageDraw.Draw(debug_image)
+    
+    # Draw corner points on debug image
+    point_radius = 8
+    for i, (x, y) in enumerate(points):
+        color = [
+            (255, 0, 0),    # Top-left: Red
+            (0, 255, 0),    # Top-right: Green
+            (0, 0, 255),    # Bottom-right: Blue
+            (255, 255, 0)   # Bottom-left: Yellow
+        ][i % 4]
+        draw.ellipse((x - point_radius, y - point_radius, x + point_radius, y + point_radius), fill=color)
+        draw.text((x + point_radius, y + point_radius), f"P{i+1}", fill=color)
+    
+    # Order points in correct sequence for perspective transform
     rect = order_points(points)
+    
+    # Draw ordered corner points on debug image
+    for i, (x, y) in enumerate(rect):
+        color = (255, 255, 255)  # White for ordered points
+        draw.ellipse((x - point_radius/2, y - point_radius/2, x + point_radius/2, y + point_radius/2), fill=color)
+        draw.text((x, y), f"O{i+1}", fill=color)
     
     # Size of the transformed image
     (tl, tr, br, bl) = rect
@@ -50,12 +76,16 @@ def four_point_transform(image: Image.Image, pts: List[Dict[str, float]]) -> Tup
     heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
     maxHeight = max(int(heightA), int(heightB))
     
+    # Ensure minimum dimensions
+    maxWidth = max(maxWidth, 100)
+    maxHeight = max(maxHeight, 100)
+    
     # Create destination coordinates for transformation
     dst = np.array([
-        [0, 0],  # Top-left corner
-        [maxWidth - 1, 0],  # Top-right corner
-        [maxWidth - 1, maxHeight - 1],  # Bottom-right corner
-        [0, maxHeight - 1]  # Bottom-left corner
+        [0, 0],                      # Top-left corner
+        [maxWidth - 1, 0],           # Top-right corner
+        [maxWidth - 1, maxHeight - 1], # Bottom-right corner
+        [0, maxHeight - 1]           # Bottom-left corner
     ], dtype="float32")
     
     # Calculate perspective transformation matrix
@@ -82,16 +112,31 @@ def four_point_transform(image: Image.Image, pts: List[Dict[str, float]]) -> Tup
         "dimensions": dimensions,
         "fast_rate": fast_rate,
         "rack_cooling_rate": rack_cooling_rate,
-        "processing_time": processing_time
+        "processing_time": processing_time,
+        "debug_image": debug_image  # Include debug image in metadata
     }
     
     return warped_pil, metadata
 
 def wrap_card_perspective(image: Image.Image, corners: List[Dict[str, float]]) -> Tuple[Optional[Image.Image], Dict[str, Any]]:
-   
+    """
+    Apply perspective transformation to a card image
+    Now works better with any angle view of the card
+    """
     start_time = time.time()
     
     try:
+        # Add some validation for corner points
+        if len(corners) != 4:
+            raise ValueError(f"Expected 4 corner points, but got {len(corners)}")
+        
+        # Check if coordinates are within valid range (0-1)
+        for i, corner in enumerate(corners):
+            if not (0 <= corner["x"] <= 1 and 0 <= corner["y"] <= 1):
+                # Clamp to valid range
+                corners[i]["x"] = max(0, min(1, corner["x"]))
+                corners[i]["y"] = max(0, min(1, corner["y"]))
+        
         # Perform perspective transformation
         warped, metadata = four_point_transform(image, corners)
         

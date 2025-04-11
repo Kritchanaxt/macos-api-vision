@@ -18,6 +18,7 @@ from app.utils.image_processing import convert_to_supported_format
 from app.utils.perspective import wrap_card_perspective
 from app.models.schemas import OCRResponse, OCRRequest, FaceQualityResponse, CardDetectionResponse
 
+
 # Create output folder if it doesn't exist
 OUTPUT_FOLDER = "output"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
@@ -25,7 +26,7 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 app = FastAPI(
     title="Thai macOS Vision API",
     description="API for Thai OCR, face quality detection, and card detection using macOS Vision Framework",
-    version="1.2.0"
+    version="1.3.0"
 )
 
 # Configure CORS
@@ -44,11 +45,6 @@ async def root():
 
 @app.get("/output/{filename}")
 async def get_output_file(filename: str):
-    """
-    Retrieve a file from the output folder
-    
-    - **filename**: Name of the file to retrieve
-    """
     file_path = os.path.join(OUTPUT_FOLDER, filename)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
@@ -79,19 +75,6 @@ async def ocr_endpoint(
         # Process OCR
         ocr_result = perform_ocr(processed_image, language_list, recognition_level)
 
-        # Make sure the result has all required fields
-        if "dimensions" not in ocr_result:
-            # Use default values if missing
-            ocr_result["dimensions"] = get_image_dimensions(processed_image)
-        if "fast_rate" not in ocr_result:
-            ocr_result["fast_rate"] = calculate_fast_rate(ocr_result["dimensions"]["width"], 
-                                                          ocr_result["dimensions"]["height"])
-        if "rack_cooling_rate" not in ocr_result:
-            ocr_result["rack_cooling_rate"] = calculate_rack_cooling_rate(
-                ocr_result["dimensions"]["width"], ocr_result["dimensions"]["height"], 0)
-        if "text_object_count" not in ocr_result:
-            ocr_result["text_object_count"] = 0
-        
         # Save image to output folder
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"ocr_{timestamp}_{uuid.uuid4().hex[:8]}.png"
@@ -118,7 +101,8 @@ async def ocr_endpoint(
 
 @app.post("/face-quality", response_model=FaceQualityResponse)
 async def face_quality_endpoint(
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    save_visualization: bool = Form(True)  # Option to save visualization with bounding boxes
 ):
     # Check operating system
     if sys.platform != "darwin":
@@ -139,19 +123,30 @@ async def face_quality_endpoint(
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"face_{timestamp}_{uuid.uuid4().hex[:8]}.png"
         output_path = os.path.join(OUTPUT_FOLDER, filename)
-        processed_image.save(output_path)
+        
+        # Save visualization if requested
+        if save_visualization and "output_image" in face_result:
+            face_result["output_image"].save(output_path)
+        else:
+            processed_image.save(output_path)
         
         # Add output_path to result
         face_result["output_path"] = f"/output/{filename}"
+        
+        # Remove output_image from result before returning (not needed in response)
+        if "output_image" in face_result:
+            del face_result["output_image"]
         
         return face_result
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error checking face quality: {str(e)}")
 
+
 @app.post("/card-detect", response_model=CardDetectionResponse)
 async def card_detection_endpoint(
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    save_visualization: bool = Form(True)  # Option to save visualization with bounding boxes
 ):
     # Check operating system
     if sys.platform != "darwin":
@@ -172,10 +167,19 @@ async def card_detection_endpoint(
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"card_{timestamp}_{uuid.uuid4().hex[:8]}.png"
         output_path = os.path.join(OUTPUT_FOLDER, filename)
-        processed_image.save(output_path)
+        
+        # Save visualization if requested
+        if save_visualization and "output_image" in card_result:
+            card_result["output_image"].save(output_path)
+        else:
+            processed_image.save(output_path)
         
         # Add output_path to result
         card_result["output_path"] = f"/output/{filename}"
+        
+        # Remove output_image from result before returning (not needed in response)
+        if "output_image" in card_result:
+            del card_result["output_image"]
         
         return card_result
         
@@ -186,7 +190,8 @@ async def card_detection_endpoint(
 async def card_perspective_endpoint(
     file: UploadFile = File(...),
     card_id: int = Form(...),
-    return_format: str = Form("base64")  # "base64" or "json"
+    return_format: str = Form("base64"),  # "base64" or "json"
+    save_debug_image: bool = Form(False)  # Option to save debug image with corner points
 ):
     # Check operating system
     if sys.platform != "darwin":
@@ -271,6 +276,7 @@ async def card_perspective_endpoint(
         raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error adjusting card perspective: {str(e)}")
+
     
 # Add this section to run the app directly
 if __name__ == "__main__":
