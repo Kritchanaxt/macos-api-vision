@@ -26,9 +26,7 @@ def order_points(pts: np.ndarray) -> np.ndarray:
     return rect
 
 def four_point_transform(image: Image.Image, pts: List[Dict[str, float]]) -> Tuple[Image.Image, Dict[str, Any]]:
-    """
-    Apply perspective transformation to obtain a top-down view of a card
-    """
+
     start_time = time.time()
     
     # Convert PIL Image to NumPy array
@@ -119,10 +117,7 @@ def four_point_transform(image: Image.Image, pts: List[Dict[str, float]]) -> Tup
     return warped_pil, metadata
 
 def wrap_card_perspective(image: Image.Image, corners: List[Dict[str, float]]) -> Tuple[Optional[Image.Image], Dict[str, Any]]:
-    """
-    Apply perspective transformation to a card image
-    Now works better with any angle view of the card
-    """
+   
     start_time = time.time()
     
     try:
