@@ -116,7 +116,7 @@ async def ocr_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing OCR: {str(e)}")
 
-@app.post("/face/quality", response_model=FaceQualityResponse)
+@app.post("/face-quality", response_model=FaceQualityResponse)
 async def face_quality_endpoint(
     file: UploadFile = File(...)
 ):
@@ -149,7 +149,7 @@ async def face_quality_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error checking face quality: {str(e)}")
 
-@app.post("/card/detect", response_model=CardDetectionResponse)
+@app.post("/card-detect", response_model=CardDetectionResponse)
 async def card_detection_endpoint(
     file: UploadFile = File(...)
 ):
@@ -182,7 +182,7 @@ async def card_detection_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error detecting card: {str(e)}")
 
-@app.post("/card/perspective")
+@app.post("/card-perspective")
 async def card_perspective_endpoint(
     file: UploadFile = File(...),
     card_id: int = Form(...),
