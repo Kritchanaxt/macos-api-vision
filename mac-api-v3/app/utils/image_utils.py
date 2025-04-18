@@ -14,3 +14,4 @@ def calculate_fast_rate(width: int, height: int) -> float:
 
 def calculate_rack_cooling_rate(width: int, height: int, face_count: int = 0) -> float:
     return (width + height) * (1 + face_count/10) / 1000
+

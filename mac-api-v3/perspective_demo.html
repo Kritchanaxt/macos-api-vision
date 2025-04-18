@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Perspective Transformation Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .image-container {
+            position: relative;
+            margin: 20px 0;
+            max-width: 800px;
+            overflow: hidden;
+        }
+        .canvas-container {
+            position: relative;
+            max-width: 800px;
+            overflow: auto;
+        }
+        canvas {
+            border: 1px solid #ddd;
+            cursor: crosshair;
+        }
+        .point {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background-color: red;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            cursor: move;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        .button-group {
+            margin: 20px 0;
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        input[type="file"] {
+            margin-bottom: 10px;
+        }
+        .results {
+            margin-top: 20px;
+            border: 1px solid #ddd;
+            padding: 20px;
+            border-radius: 4px;
+        }
+        .image-preview {
+            max-width: 100%;
+            margin-top: 20px;
+        }
+        .loading {
+            display: none;
+            margin: 20px 0;
+        }
+        .error-message {
+            color: red;
+            margin: 10px 0;
+        }
+        .coordinate-display {
+            margin: 10px 0;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>Perspective Transformation Tool</h1>
+    <p>Upload an image and adjust the four corner points to perform perspective transformation.</p>
+    
+    <div class="container">
+        <div>
+            <input type="file" id="imageInput" accept="image/*">
+            <div class="error-message" id="errorMessage"></div>
+        </div>
+        
+        <div class="canvas-container">
+            <canvas id="imageCanvas"></canvas>
+            <div id="pointsContainer"></div>
+        </div>
+        
+        <div class="coordinate-display" id="coordinateDisplay">
+            Points: []
+        </div>
+        
+        <div class="button-group">
+            <button id="visualizeBtn" disabled>Visualize Points</button>
+            <button id="transformBtn" disabled>Transform Image</button>
+            <button id="resetBtn" disabled>Reset Points</button>
+        </div>
+        
+        <div class="loading" id="loading">
+            Processing... Please wait.
+        </div>
+        
+        <div class="results" id="results" style="display: none;">
+            <h2>Transformation Results</h2>
+            <div id="resultDetails"></div>
+            <img id="resultImage" class="image-preview" alt="Transformed Image">
+        </div>
+    </div>
+
+    <script>
+        // API endpoint (update this to your actual API URL)
+        const API_URL = 'http://localhost:8000';
+        
+        // DOM elements
+        const imageInput = document.getElementById('imageInput');
+        const imageCanvas = document.getElementById('imageCanvas');
+        const ctx = imageCanvas.getContext('2d');
+        const pointsContainer = document.getElementById('pointsContainer');
+        const coordinateDisplay = document.getElementById('coordinateDisplay');
+        const visualizeBtn = document.getElementById('visualizeBtn');
+        const transformBtn = document.getElementById('transformBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const loading = document.getElementById('loading');
+        const results = document.getElementById('results');
+        const resultDetails = document.getElementById('resultDetails');
+        const resultImage = document.getElementById('resultImage');
+        const errorMessage = document.getElementById('errorMessage');
+        
+        // State variables
+        let originalImage = null;
+        let points = [];
+        let isDragging = false;
+        let dragPointIndex = -1;
+        
+        // Initialize the canvas and points
+        function initCanvas(image) {
+            // Set canvas dimensions to match image
+            const maxWidth = 800;
+            const maxHeight = 600;
+            
+            let width = image.width;
+            let height = image.height;
+            
+            // Scale down if image is too large
+            if (width > maxWidth || height > maxHeight) {
+                const ratio = Math.min(maxWidth / width, maxHeight / height);
+                width = width * ratio;
+                height = height * ratio;
+            }
+            
+            imageCanvas.width = width;
+            imageCanvas.height = height;
+            
+            // Draw image on canvas
+            ctx.clearRect(0, 0, width, height);
+            ctx.drawImage(image, 0, 0, width, height);
+            
+            // Initialize points at the corners
+            points = [
+                { x: 0, y: 0 },                 // Top-left
+                { x: width, y: 0 },             // Top-right
+                { x: width, y: height },        // Bottom-right
+                { x: 0, y: height }              // Bottom-left
+            ];
+            
+            // Create draggable point elements
+            createPointElements();
+            
+            // Update UI
+            updatePointsDisplay();
+            enableButtons();
+        }
+        
+        // Create draggable point elements
+        function createPointElements() {
+            // Clear existing points
+            pointsContainer.innerHTML = '';
+            
+            // Create new points
+            points.forEach((point, index) => {
+                const pointElem = document.createElement('div');
+                pointElem.className = 'point';
+                pointElem.style.left = `${point.x}px`;
+                pointElem.style.top = `${point.y}px`;
+                pointElem.textContent = index + 1;
+                pointElem.dataset.index = index;
+                
+                // Add event listeners for dragging
+                pointElem.addEventListener('mousedown', startDrag);
+                pointElem.addEventListener('touchstart', startDrag, { passive: false });
+                
+                pointsContainer.appendChild(pointElem);
+            });
+        }
+        
+        // Start dragging a point
+        function startDrag(event) {
+            event.preventDefault();
+            isDragging = true;
+            dragPointIndex = parseInt(event.target.dataset.index);
+            
+            // Add event listeners for drag and end
+            document.addEventListener('mousemove', dragPoint);
+            document.addEventListener('touchmove', dragPoint, { passive: false });
+            document.addEventListener('mouseup', stopDrag);
+            document.addEventListener('touchend', stopDrag);
+        }
+        
+        // Drag a point
+        function dragPoint(event) {
+            if (!isDragging) return;
+            
+            event.preventDefault();
+            
+            // Get mouse/touch position
+            let clientX, clientY;
+            
+            if (event.type === 'touchmove') {
+                clientX = event.touches[0].clientX;
+                clientY = event.touches[0].clientY;
+            } else {
+                clientX = event.clientX;
+                clientY = event.clientY;
+            }
+            
+            // Get canvas position
+            const rect = imageCanvas.getBoundingClientRect();
+            
+            // Calculate new point position, clamped to canvas bounds
+            const x = Math.max(0, Math.min(imageCanvas.width, clientX - rect.left));
+            const y = Math.max(0, Math.min(imageCanvas.height, clientY - rect.top));
+            
+            // Update point position
+            points[dragPointIndex].x = x;
+            points[dragPointIndex].y = y;
+            
+            // Update point element position
+            const pointElem = pointsContainer.children[dragPointIndex];
+            pointElem.style.left = `${x}px`;
+            pointElem.style.top = `${y}px`;
+            
+            // Update coordinate display
+            updatePointsDisplay();
+        }
+        
+        // Stop dragging
+        function stopDrag() {
+            if (!isDragging) return;
+            
+            isDragging = false;
+            
+            // Remove event listeners
+            document.removeEventListener('mousemove', dragPoint);
+            document.removeEventListener('touchmove', dragPoint);
+            document.removeEventListener('mouseup', stopDrag);
+            document.removeEventListener('touchend', stopDrag);
+        }
+        
+        // Update points display
+        function updatePointsDisplay() {
+            const pointsString = JSON.stringify(points);
+            coordinateDisplay.textContent = `Points: ${pointsString}`;
+        }
+        
+        // Enable buttons
+        function enableButtons() {
+            visualizeBtn.disabled = false;
+            transformBtn.disabled = false;
+            resetBtn.disabled = false;
+        }
+        
+        // Reset points to corners
+        function resetPoints() {
+            points = [
+                { x: 0, y: 0 },                       // Top-left
+                { x: imageCanvas.width, y: 0 },       // Top-right
+                { x: imageCanvas.width, y: imageCanvas.height }, // Bottom-right
+                { x: 0, y: imageCanvas.height }       // Bottom-left
+            ];
+            
+            createPointElements();
+            updatePointsDisplay();
+        }
+        
+        // Visualize points
+        async function visualizePoints() {
+            if (!originalImage) return;
+            
+            try {
+                // Show loading
+                loading.style.display = 'block';
+                results.style.display = 'none';
+                errorMessage.textContent = '';
+                
+                // Convert image to base64
+                const imageBlob = await getImageBlob(originalImage);
+                const base64Image = await blobToBase64(imageBlob);
+                
+                // Send to API
+                const response = await fetch(`${API_URL}/perspective`, {
+                    method: 'POST',
+                    body: createFormData(imageBlob, points, null, null, true)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                // Display results
+                showResults(data);
+            } catch (error) {
+                errorMessage.textContent = error.message;
+                loading.style.display = 'none';
+            }
+        }
+        
+        // Transform image
+        async function transformImage() {
+            if (!originalImage) return;
+            
+            try {
+                // Show loading
+                loading.style.display = 'block';
+                results.style.display = 'none';
+                errorMessage.textContent = '';
+                
+                // Convert image to blob
+                const imageBlob = await getImageBlob(originalImage);
+                
+                // Send to API
+                const response = await fetch(`${API_URL}/perspective`, {
+                    method: 'POST',
+                    body: createFormData(imageBlob, points)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                // Display results
+                showResults(data);
+            } catch (error) {
+                errorMessage.textContent = error.message;
+                loading.style.display = 'none';
+            }
+        }
+        
+        // Create form data for API request
+        function createFormData(imageBlob, points, width = null, height = null, visualizeOnly = false) {
+            const formData = new FormData();
+            formData.append('file', imageBlob);
+            formData.append('points', JSON.stringify(points));
+            
+            if (width !== null) {
+                formData.append('width', width);
+            }
+            
+            if (height !== null) {
+                formData.append('height', height);
+            }
+            
+            formData.append('visualize_only', visualizeOnly);
+            
+            return formData;
+        }
+        
+        // Get image blob from original image
+        function getImageBlob(image) {
+            return new Promise((resolve) => {
+                const canvas = document.createElement('canvas');
+                canvas.width = image.width;
+                canvas.height = image.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(image, 0, 0);
+                
+                canvas.toBlob((blob) => {
+                    resolve(blob);
+                });
+            });
+        }
+        
+        // Convert blob to base64
+        function blobToBase64(blob) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+        }
+        
+        // Show results
+        function showResults(data) {
+            // Hide loading
+            loading.style.display = 'none';
+            
+            // Show results
+            results.style.display = 'block';
+            
+            // Display result details
+            resultDetails.innerHTML = `
+                <p>Dimensions: ${data.width} x ${data.height}</p>
+                <p>Processing Time: ${data.processing_time.toFixed(3)} seconds</p>
+            `;
+            
+            // Display result image
+            resultImage.src = `${API_URL}${data.output_path}`;
+        }
+        
+        // Event listeners
+        imageInput.addEventListener('change', (event) => {
+            if (event.target.files && event.target.files[0]) {
+                const file = event.target.files[0];
+                
+                // Clear previous error
+                errorMessage.textContent = '';
+                
+                // Read image file
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        originalImage = img;
+                        initCanvas(img);
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+        
+        visualizeBtn.addEventListener('click', visualizePoints);
+        transformBtn.addEventListener('click', transformImage);
+        resetBtn.addEventListener('click', resetPoints);
+    </script>
+</body>
+</html>

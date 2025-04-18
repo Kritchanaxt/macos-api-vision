@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Query, Body
 from fastapi.responses import JSONResponse, Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import io
@@ -9,14 +9,19 @@ import os
 import base64
 from datetime import datetime
 import uuid
+import json
+
 
 # Import our modules
 from app.ocr.engine import perform_ocr
 from app.face.quality_detection import detect_face_quality
 from app.card.detector import detect_card
 from app.utils.image_processing import convert_to_supported_format
-from app.utils.perspective import wrap_card_perspective
-from app.models.schemas import OCRResponse, OCRRequest, FaceQualityResponse, CardDetectionResponse
+from app.utils.perspective_transform import perform_perspective_transform, visualize_perspective_points
+from app.models.schemas import (
+    OCRResponse, OCRRequest, FaceQualityResponse, CardDetectionResponse,
+    PerspectiveTransformRequest, PerspectiveResponse, Point, Optional, List
+)
 
 
 # Create output folder if it doesn't exist
@@ -25,8 +30,8 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 app = FastAPI(
     title="Thai macOS Vision API",
-    description="API for Thai OCR, face quality detection, and card detection using macOS Vision Framework",
-    version="1.3.0"
+    description="API for Thai OCR, face quality detection, card detection, and perspective transformation using macOS Vision Framework",
+    version="1.4.0"
 )
 
 # Configure CORS
@@ -186,17 +191,15 @@ async def card_detection_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error detecting card: {str(e)}")
 
-@app.post("/card-perspective")
-async def card_perspective_endpoint(
+
+@app.post("/perspective", response_model=PerspectiveResponse)
+async def perspective_endpoint(
     file: UploadFile = File(...),
-    card_id: int = Form(...),
-    return_format: str = Form("base64"),  # "base64" or "json"
-    save_debug_image: bool = Form(False)  # Option to save debug image with corner points
+    points: str = Form(...),  # JSON string with points [{"x": x1, "y": y1}, ...]
+    width: Optional[int] = Form(None),
+    height: Optional[int] = Form(None),
+    visualize_only: bool = Form(False)  # If true, just return visualization without transformation
 ):
-    # Check operating system
-    if sys.platform != "darwin":
-        raise HTTPException(status_code=400, detail="This API works only on macOS")
-    
     try:
         # Read image file
         image_data = await file.read()
@@ -205,77 +208,168 @@ async def card_perspective_endpoint(
         # Convert image to supported format
         processed_image = convert_to_supported_format(image)
         
-        # Detect cards
-        card_result = detect_card(processed_image)
+        # Parse points from JSON string
+        try:
+            points_list = json.loads(points)
+            
+            # Validate points
+            if len(points_list) != 4:
+                raise HTTPException(status_code=400, detail="Exactly 4 points are required for perspective transformation")
+            
+            # Validate each point has x and y
+            for point in points_list:
+                if "x" not in point or "y" not in point:
+                    raise HTTPException(status_code=400, detail="Each point must have 'x' and 'y' coordinates")
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid JSON format for points")
         
-        # Find card by ID (supports both 0-indexed and 1-indexed)
-        selected_card = None
-        
-        # Direct search first (for existing 1-indexed)
-        for card in card_result["cards"]:
-            if card["id"] == card_id:
-                selected_card = card
-                break
-        
-        # If not found, try adjusted ID (for 0-indexed case)
-        if not selected_card and card_id >= 0 and card_id < len(card_result["cards"]):
-            adjusted_id = card_id + 1
-            for card in card_result["cards"]:
-                if card["id"] == adjusted_id:
-                    selected_card = card
-                    break
-        
-        if not selected_card:
-            raise HTTPException(status_code=404, detail=f"Card with ID {card_id} not found")
-        
-        # Adjust card perspective
-        warped_card, metadata = wrap_card_perspective(processed_image, selected_card["corners"])
-        
-        if warped_card is None:
-            raise HTTPException(status_code=500, detail="Could not adjust card perspective")
-        
-        # Save image to output folder
+        # Generate timestamp for filenames
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"perspective_{timestamp}_{uuid.uuid4().hex[:8]}.png"
-        output_path = os.path.join(OUTPUT_FOLDER, filename)
-        warped_card.save(output_path)
+        unique_id = uuid.uuid4().hex[:8]
         
-        # Return data according to specified format
-        if return_format == "base64":
-            # Convert image to base64
-            buffer = io.BytesIO()
-            warped_card.save(buffer, format="PNG")
-            img_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
+        # If visualize_only is True, just return a visualization of the points
+        if visualize_only:
+            visual_image = visualize_perspective_points(processed_image, points_list)
             
-            return JSONResponse({
-                "format": "base64",
-                "width": warped_card.width,
-                "height": warped_card.height,
-                "dimensions": metadata["dimensions"],
-                "fast_rate": metadata["fast_rate"],
-                "rack_cooling_rate": metadata["rack_cooling_rate"],
-                "processing_time": metadata["processing_time"],
-                "output_path": f"/output/{filename}"
-            })
-        else:
-            # Return image directly
-            return FileResponse(
-                output_path,
-                media_type="image/png",
-                headers={
-                    "X-Output-Path": f"/output/{filename}",
-                    "X-Width": str(warped_card.width),
-                    "X-Height": str(warped_card.height),
-                    "X-Fast-Rate": str(metadata["fast_rate"]),
-                    "X-Rack-Cooling-Rate": str(metadata["rack_cooling_rate"]),
-                    "X-Processing-Time": str(metadata["processing_time"])
-                }
+            # Save visualization
+            filename = f"perspective_viz_{timestamp}_{unique_id}.png"
+            output_path = os.path.join(OUTPUT_FOLDER, filename)
+            visual_image.save(output_path)
+            
+            # Get dimensions
+            dimensions = {
+                "width": visual_image.width,
+                "height": visual_image.height
+            }
+            
+            # Calculate rates
+            fast_rate = (dimensions["width"] * dimensions["height"]) / 1000000
+            rack_cooling_rate = (dimensions["width"] + dimensions["height"]) / 1000
+            
+            return PerspectiveResponse(
+                format="PNG",
+                width=dimensions["width"],
+                height=dimensions["height"],
+                dimensions=dimensions,
+                fast_rate=fast_rate,
+                rack_cooling_rate=rack_cooling_rate,
+                processing_time=0.0,  # Just visualization, no transformation processing
+                output_path=f"/output/{filename}"
             )
-            
-    except HTTPException as he:
-        raise he
+        
+        # Perform perspective transformation
+        result = perform_perspective_transform(
+            processed_image,
+            points_list,
+            width=width,
+            height=height
+        )
+        
+        # Save transformed image
+        filename = f"perspective_{timestamp}_{unique_id}.png"
+        output_path = os.path.join(OUTPUT_FOLDER, filename)
+        result["output_image"].save(output_path)
+        
+        # Add output_path to result
+        result["output_path"] = f"/output/{filename}"
+        
+        # Remove output_image from result before returning
+        del result["output_image"]
+        
+        return PerspectiveResponse(**result)
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error adjusting card perspective: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error performing perspective transformation: {str(e)}")
+
+
+# Add this endpoint to allow input of base64 image instead of file upload
+@app.post("/perspective/base64", response_model=PerspectiveResponse)
+async def perspective_base64_endpoint(
+    image_base64: str = Body(..., embed=True),
+    points: List[Point] = Body(...),
+    width: Optional[int] = Body(None),
+    height: Optional[int] = Body(None),
+    visualize_only: bool = Body(False)
+):
+    try:
+        # Decode base64 image
+        try:
+            # Remove data URI prefix if present (e.g., "data:image/jpeg;base64,")
+            if "base64," in image_base64:
+                image_base64 = image_base64.split("base64,")[1]
+                
+            image_data = base64.b64decode(image_base64)
+            image = Image.open(io.BytesIO(image_data))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid base64 image: {str(e)}")
+        
+        # Convert image to supported format
+        processed_image = convert_to_supported_format(image)
+        
+        # Convert Pydantic Points to dict format
+        points_list = [{"x": point.x, "y": point.y} for point in points]
+        
+        # Validate points
+        if len(points_list) != 4:
+            raise HTTPException(status_code=400, detail="Exactly 4 points are required for perspective transformation")
+        
+        # Generate timestamp for filenames
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        unique_id = uuid.uuid4().hex[:8]
+        
+        # If visualize_only is True, just return a visualization of the points
+        if visualize_only:
+            visual_image = visualize_perspective_points(processed_image, points_list)
+            
+            # Save visualization
+            filename = f"perspective_viz_{timestamp}_{unique_id}.png"
+            output_path = os.path.join(OUTPUT_FOLDER, filename)
+            visual_image.save(output_path)
+            
+            # Get dimensions
+            dimensions = {
+                "width": visual_image.width,
+                "height": visual_image.height
+            }
+            
+            # Calculate rates
+            fast_rate = (dimensions["width"] * dimensions["height"]) / 1000000
+            rack_cooling_rate = (dimensions["width"] + dimensions["height"]) / 1000
+            
+            return PerspectiveResponse(
+                format="PNG",
+                width=dimensions["width"],
+                height=dimensions["height"],
+                dimensions=dimensions,
+                fast_rate=fast_rate,
+                rack_cooling_rate=rack_cooling_rate,
+                processing_time=0.0,
+                output_path=f"/output/{filename}"
+            )
+        
+        # Perform perspective transformation
+        result = perform_perspective_transform(
+            processed_image,
+            points_list,
+            width=width,
+            height=height
+        )
+        
+        # Save transformed image
+        filename = f"perspective_{timestamp}_{unique_id}.png"
+        output_path = os.path.join(OUTPUT_FOLDER, filename)
+        result["output_image"].save(output_path)
+        
+        # Add output_path to result
+        result["output_path"] = f"/output/{filename}"
+        
+        # Remove output_image from result before returning
+        del result["output_image"]
+        
+        return PerspectiveResponse(**result)
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error performing perspective transformation: {str(e)}")
 
     
 # Add this section to run the app directly

@@ -83,6 +83,18 @@ class CardDetectionResponse(BaseModel):
     error: Optional[str] = None
     output_path: Optional[str] = None  # Path to output file
 
+# New models for perspective transformation
+class Point(BaseModel):
+    """Model for a 2D point"""
+    x: float
+    y: float
+
+class PerspectiveTransformRequest(BaseModel):
+    """Model for perspective transformation request"""
+    points: List[Point]
+    width: Optional[int] = None
+    height: Optional[int] = None
+
 class PerspectiveResponse(BaseModel):
     """Model for perspective transformation response"""
     format: str
@@ -91,4 +103,5 @@ class PerspectiveResponse(BaseModel):
     dimensions: ImageDimensions
     fast_rate: float
     rack_cooling_rate: float
+    processing_time: float
     output_path: str
