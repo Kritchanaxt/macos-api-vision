@@ -13,18 +13,6 @@ def perform_perspective_transform(
     width: int = None,
     height: int = None
 ) -> Dict[str, Any]:
-    """
-    Perform perspective transformation on an image based on 4 source points.
-    
-    Args:
-        image: PIL Image object
-        src_points: List of 4 points in format [{"x": x1, "y": y1}, {"x": x2, "y": y2}, ...]
-        width: Optional desired width of output image (if None, calculated from points)
-        height: Optional desired height of output image (if None, calculated from points)
-        
-    Returns:
-        Dictionary containing transformation results
-    """
     # Start timing
     import time
     start_time = time.time()
@@ -45,25 +33,44 @@ def perform_perspective_transform(
     if len(src_points_array) != 4:
         raise ValueError("Exactly 4 source points are required for perspective transformation")
     
+    # Sort points by their position to ensure correct order: top-left, top-right, bottom-right, bottom-left
+    # First sort by y-coordinate (top to bottom)
+    src_points_array = src_points_array[np.argsort(src_points_array[:, 1])]
+    
+    # Now the first two points are the top points, sort them by x-coordinate
+    if src_points_array[0][0] > src_points_array[1][0]:
+        src_points_array[[0, 1]] = src_points_array[[1, 0]]
+    
+    # The last two points are the bottom points, sort them by x-coordinate (right to left)
+    if src_points_array[2][0] < src_points_array[3][0]:
+        src_points_array[[2, 3]] = src_points_array[[3, 2]]
+    
     # If width and height are not provided, calculate from max dimensions of source points
     if width is None or height is None:
-        # Calculate width and height from the bounding rectangle of the destination quadrilateral
-        x_min = min(p["x"] for p in src_points)
-        x_max = max(p["x"] for p in src_points)
-        y_min = min(p["y"] for p in src_points)
-        y_max = max(p["y"] for p in src_points)
+        # Find the max width and height
+        width_top = np.sqrt(((src_points_array[1][0] - src_points_array[0][0]) ** 2) + 
+                           ((src_points_array[1][1] - src_points_array[0][1]) ** 2))
+        width_bottom = np.sqrt(((src_points_array[2][0] - src_points_array[3][0]) ** 2) + 
+                              ((src_points_array[2][1] - src_points_array[3][1]) ** 2))
+        max_width = int(max(width_top, width_bottom))
+        
+        height_left = np.sqrt(((src_points_array[3][0] - src_points_array[0][0]) ** 2) + 
+                             ((src_points_array[3][1] - src_points_array[0][1]) ** 2))
+        height_right = np.sqrt(((src_points_array[2][0] - src_points_array[1][0]) ** 2) + 
+                              ((src_points_array[2][1] - src_points_array[1][1]) ** 2))
+        max_height = int(max(height_left, height_right))
         
         if width is None:
-            width = int(x_max - x_min)
+            width = max_width
         if height is None:
-            height = int(y_max - y_min)
+            height = max_height
     
     # Define destination points for a rectangle
     dst_points = np.array([
-        [0, 0],
-        [width, 0],
-        [width, height],
-        [0, height]
+        [0, 0],              # Top-left
+        [width - 1, 0],      # Top-right
+        [width - 1, height - 1],  # Bottom-right
+        [0, height - 1]      # Bottom-left
     ], dtype=np.float32)
     
     # Compute the perspective transform matrix
