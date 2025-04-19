@@ -50,7 +50,6 @@ def process_image_with_vision(image, languages: List[str], recognition_level: st
         
         recognized_text = ""
         confidence_sum = 0
-        detected_languages = set()
         text_object_count = 0
         
         if results:
@@ -61,11 +60,6 @@ def process_image_with_vision(image, languages: List[str], recognition_level: st
                 
                 # Calculate average confidence
                 confidence_sum += result.confidence()
-                
-                # Detect recognized languages
-                if hasattr(result, "recognizedLanguages"):
-                    for lang in result.recognizedLanguages():
-                        detected_languages.add(lang.string())
         
         # Calculate average confidence
         avg_confidence = confidence_sum / len(results) if results else 0
@@ -77,24 +71,22 @@ def process_image_with_vision(image, languages: List[str], recognition_level: st
         return {
             "text": recognized_text.strip(),
             "confidence": float(avg_confidence),
-            "languages_detected": list(detected_languages),
             "dimensions": dimensions,
             "fast_rate": fast_rate,
             "rack_cooling_rate": rack_cooling_rate,
-            "text_object_count": text_object_count,
-            "processing_time": time.time() - start_time
+            "processing_time": time.time() - start_time,
+            "text_object_count": text_object_count
         }
     
     except Exception as e:
         return {
             "text": f"Error occurred: {str(e)}",
             "confidence": 0.0,
-            "languages_detected": [],
             "dimensions": dimensions,
             "fast_rate": calculate_fast_rate(width, height),
             "rack_cooling_rate": calculate_rack_cooling_rate(width, height, 0),
-            "text_object_count": 0,
-            "processing_time": time.time() - start_time
+            "processing_time": time.time() - start_time,
+            "text_object_count": 0
         }
     finally:
         # Delete temporary file

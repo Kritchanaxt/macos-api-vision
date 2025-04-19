@@ -110,7 +110,6 @@ def detect_card(image: Image.Image) -> Dict[str, Any]:
         rack_cooling_rate = calculate_rack_cooling_rate(width, height, card_count)
         
         return {
-            "card_count": card_count,
             "cards": cards,
             "dimensions": dimensions,
             "fast_rate": fast_rate,
@@ -122,7 +121,6 @@ def detect_card(image: Image.Image) -> Dict[str, Any]:
     except Exception as e:
         return {
             "error": f"Error occurred: {str(e)}",
-            "card_count": 0,
             "cards": [],
             "dimensions": dimensions,
             "fast_rate": calculate_fast_rate(width, height),

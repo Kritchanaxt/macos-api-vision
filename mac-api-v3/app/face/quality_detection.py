@@ -42,7 +42,6 @@ def detect_face_quality(image: Image.Image) -> Dict[str, Any]:
         
         face_results = []
         face_count = 0
-        avg_quality = 0.0
         
         # Check results
         if face_request.results():
@@ -108,11 +107,6 @@ def detect_face_quality(image: Image.Image) -> Dict[str, Any]:
                 }
                 
                 face_results.append(face_data)
-                avg_quality += quality_score
-        
-        # Calculate average quality
-        if face_count > 0:
-            avg_quality = avg_quality / face_count
         
         # Calculate rates
         fast_rate = calculate_fast_rate(width, height)
@@ -120,9 +114,7 @@ def detect_face_quality(image: Image.Image) -> Dict[str, Any]:
         
         # Prepare result data
         result = {
-            "face_count": face_count,
             "faces": face_results,
-            "average_quality": float(avg_quality),
             "dimensions": dimensions,
             "fast_rate": fast_rate,
             "rack_cooling_rate": rack_cooling_rate,
@@ -135,9 +127,7 @@ def detect_face_quality(image: Image.Image) -> Dict[str, Any]:
     except Exception as e:
         return {
             "error": f"Error occurred: {str(e)}",
-            "face_count": 0,
             "faces": [],
-            "average_quality": 0.0,
             "dimensions": dimensions,
             "fast_rate": calculate_fast_rate(width, height),
             "rack_cooling_rate": calculate_rack_cooling_rate(width, height, 0),

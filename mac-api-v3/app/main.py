@@ -92,12 +92,11 @@ async def ocr_endpoint(
         return OCRResponse(
             recognized_text=ocr_result["text"],
             confidence=ocr_result["confidence"],
-            languages_detected=ocr_result["languages_detected"],
             dimensions=ocr_result["dimensions"],
             fast_rate=ocr_result["fast_rate"],
             rack_cooling_rate=ocr_result["rack_cooling_rate"],
-            text_object_count=ocr_result["text_object_count"],
             processing_time=ocr_result["processing_time"],
+            text_object_count=ocr_result["text_object_count"],
             output_path=ocr_result["output_path"]
         )
         

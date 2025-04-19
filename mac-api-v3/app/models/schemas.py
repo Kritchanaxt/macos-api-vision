@@ -15,12 +15,11 @@ class OCRResponse(BaseModel):
     """Model for OCR response"""
     recognized_text: str
     confidence: float
-    languages_detected: List[str]
     dimensions: ImageDimensions
     fast_rate: float
     rack_cooling_rate: float
-    text_object_count: int
     processing_time: float  # Processing time (seconds)
+    text_object_count: int
     output_path: Optional[str] = None  # Path to output file
 
 class FaceQualityPoint(BaseModel):
@@ -43,9 +42,7 @@ class FaceInfo(BaseModel):
 
 class FaceQualityResponse(BaseModel):
     """Model for face quality response"""
-    face_count: int
     faces: List[FaceInfo]
-    average_quality: float
     dimensions: ImageDimensions
     fast_rate: float
     rack_cooling_rate: float
@@ -74,7 +71,6 @@ class CardInfo(BaseModel):
 
 class CardDetectionResponse(BaseModel):
     """Model for card detection response"""
-    card_count: int
     cards: List[CardInfo]
     dimensions: ImageDimensions
     fast_rate: float
