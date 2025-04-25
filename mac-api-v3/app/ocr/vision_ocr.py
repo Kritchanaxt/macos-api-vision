@@ -5,7 +5,7 @@ import time
 import os
 import tempfile
 from typing import List, Dict, Any
-from PIL import Image
+from PIL import Image, ImageDraw
 from app.utils.image_utils import get_image_dimensions, calculate_fast_rate, calculate_rack_cooling_rate
 
 
@@ -51,15 +51,52 @@ def process_image_with_vision(image, languages: List[str], recognition_level: st
         recognized_text = ""
         confidence_sum = 0
         text_object_count = 0
+        text_elements = []
+        
+        # Create a copy of the image to draw bounding boxes for visualization
+        visualization_image = image.copy()
+        draw = ImageDraw.Draw(visualization_image)
         
         if results:
             text_object_count = len(results)
             for result in results:
+                # Extract text and confidence
+                text = result.text()
+                confidence = result.confidence()
+                
                 # Add recognized text
-                recognized_text += result.text() + "\n"
+                recognized_text += text + "\n"
                 
                 # Calculate average confidence
-                confidence_sum += result.confidence()
+                confidence_sum += confidence
+                
+                # Get bounding box
+                # In Vision framework, boundingBox() returns a CGRect in normalized coordinates (0-1)
+                bbox = result.boundingBox()
+                
+                # Convert normalized coordinates to actual pixel values
+                x = bbox.origin.x * width
+                y = (1 - bbox.origin.y - bbox.size.height) * height  # Flip Y coordinate
+                w = bbox.size.width * width
+                h = bbox.size.height * height
+                
+                # Add to text elements array
+                text_elements.append({
+                    "text": text,
+                    "confidence": float(confidence),
+                    "position": {
+                        "x": float(x),
+                        "y": float(y),
+                        "width": float(w),
+                        "height": float(h)
+                    }
+                })
+                
+                # Draw bounding box on visualization image
+                draw.rectangle([x, y, x + w, y + h], outline="red", width=2)
+                # Add text label (first 10 chars or less)
+                label = text[:10] + "..." if len(text) > 10 else text
+                draw.text((x, y - 10), label, fill="red")
         
         # Calculate average confidence
         avg_confidence = confidence_sum / len(results) if results else 0
@@ -68,20 +105,27 @@ def process_image_with_vision(image, languages: List[str], recognition_level: st
         fast_rate = calculate_fast_rate(width, height)
         rack_cooling_rate = calculate_rack_cooling_rate(width, height, text_object_count)
         
+        # Save visualization image for debugging
+        visualization_path = temp_filename + "_vis.png"
+        visualization_image.save(visualization_path)
+        
         return {
             "text": recognized_text.strip(),
             "confidence": float(avg_confidence),
+            "text_elements": text_elements,
             "dimensions": dimensions,
             "fast_rate": fast_rate,
             "rack_cooling_rate": rack_cooling_rate,
             "processing_time": time.time() - start_time,
-            "text_object_count": text_object_count
+            "text_object_count": text_object_count,
+            "visualization_image": visualization_image
         }
     
     except Exception as e:
         return {
             "text": f"Error occurred: {str(e)}",
             "confidence": 0.0,
+            "text_elements": [],
             "dimensions": dimensions,
             "fast_rate": calculate_fast_rate(width, height),
             "rack_cooling_rate": calculate_rack_cooling_rate(width, height, 0),

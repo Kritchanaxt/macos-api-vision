@@ -60,7 +60,8 @@ async def get_output_file(filename: str):
 async def ocr_endpoint(
     file: UploadFile = File(...),
     languages: str = Form("th-TH,en-US"),  # Default: Thai and English
-    recognition_level: str = Form("accurate")
+    recognition_level: str = Form("accurate"),
+    save_visualization: bool = Form(False)  # Option to save visualization with bounding boxes
 ):
     # Check operating system
     if sys.platform != "darwin":
@@ -84,14 +85,24 @@ async def ocr_endpoint(
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"ocr_{timestamp}_{uuid.uuid4().hex[:8]}.png"
         output_path = os.path.join(OUTPUT_FOLDER, filename)
-        processed_image.save(output_path)
+        
+        # Save visualization if requested
+        if save_visualization and "visualization_image" in ocr_result:
+            ocr_result["visualization_image"].save(output_path)
+        else:
+            processed_image.save(output_path)
         
         # Add output_path to result
         ocr_result["output_path"] = f"/output/{filename}"
         
+        # Remove visualization_image from result before returning (not needed in response)
+        if "visualization_image" in ocr_result:
+            del ocr_result["visualization_image"]
+        
         return OCRResponse(
             recognized_text=ocr_result["text"],
             confidence=ocr_result["confidence"],
+            text_elements=ocr_result["text_elements"],
             dimensions=ocr_result["dimensions"],
             fast_rate=ocr_result["fast_rate"],
             rack_cooling_rate=ocr_result["rack_cooling_rate"],

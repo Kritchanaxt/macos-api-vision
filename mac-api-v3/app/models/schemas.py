@@ -11,10 +11,24 @@ class ImageDimensions(BaseModel):
     width: int
     height: int
 
+class TextPosition(BaseModel):
+    """Model for text position"""
+    x: float
+    y: float
+    width: float
+    height: float
+
+class TextElement(BaseModel):
+    """Model for individual text element"""
+    text: str
+    confidence: float
+    position: TextPosition
+
 class OCRResponse(BaseModel):
     """Model for OCR response"""
     recognized_text: str
     confidence: float
+    text_elements: List[TextElement]
     dimensions: ImageDimensions
     fast_rate: float
     rack_cooling_rate: float
