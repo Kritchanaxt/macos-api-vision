@@ -13,15 +13,47 @@ import json
 
 
 # Import our modules
-from app.ocr.engine import perform_ocr
-from app.face.quality_detection import detect_face_quality
-from app.card.detector import detect_card
-from app.utils.image_processing import convert_to_supported_format
-from app.utils.perspective_transform import perform_perspective_transform, visualize_perspective_points
+# Modify these import paths to point to the correct locations
+# If all Python files are in the same directory, remove the "app" prefix
+try:
+    # Try importing from app structure first
+    from app.ocr.engine import perform_ocr
+    from app.face.quality_detection import detect_face_quality
+    from app.card.detector import detect_card
+    from app.utils.image_processing import convert_to_supported_format
+    from app.utils.perspective_transform import perform_perspective_transform, visualize_perspective_points
+except ImportError:
+    # If that fails, try importing from the current directory
+    try:
+        # If the files are in the same directory as main.py
+        from ocr.engine import perform_ocr
+        from face.quality_detection import detect_face_quality
+        from card.detector import detect_card
+        from image_processing import convert_to_supported_format
+        from perspective_transform import perform_perspective_transform, visualize_perspective_points
+    except ImportError:
+        # If that also fails, raise an informative error
+        raise ImportError("Could not import required modules. Please check file structure.")
+
 from app.models.schemas import (
     OCRResponse, OCRRequest, FaceQualityResponse, CardDetectionResponse,
     PerspectiveTransformRequest, PerspectiveResponse, Point, Optional, List
 )
+
+# Adjust schema imports if needed
+try:
+    from app.models.schemas import (
+        OCRResponse, OCRRequest, FaceQualityResponse, CardDetectionResponse,
+        PerspectiveTransformRequest, PerspectiveResponse, Point, Optional, List
+    )
+except ImportError:
+    try:
+        from schemas import (
+            OCRResponse, OCRRequest, FaceQualityResponse, CardDetectionResponse,
+            PerspectiveTransformRequest, PerspectiveResponse, Point, Optional, List
+        )
+    except ImportError:
+        raise ImportError("Could not import schema models. Please check file structure.")
 
 
 # Create output folder if it doesn't exist
