@@ -8,7 +8,6 @@ OCR mac api face quality detection Card detection and wrap perspective
 | Name Project       | MAC API                                                                                     |
 | Main Goal          | OCR Mac, Face quality detection, Card detection, Wrap perspective                           |
 | Tools              | Vision Framework (macOS), CoreImage, PyObjC, FastAPI, OpenCV, NumPy, Pillow(PIL), Uvicorn |
-| Scope of Testing   | บัตรประชาชน, บัตรขับขี่                                                                    |
 
 ---
 
