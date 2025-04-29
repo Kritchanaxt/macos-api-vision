@@ -91,7 +91,7 @@ def detect_card(image: Image.Image) -> Dict[str, Any]:
                 
                 # Add card data to results
                 card_data = {
-                    "id": i + 1,
+                    "id": str(i + 1),
                     "corners": corners,
                     "confidence": float(confidence),
                     "bbox": {

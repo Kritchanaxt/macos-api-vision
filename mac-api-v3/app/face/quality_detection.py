@@ -47,7 +47,7 @@ def detect_face_quality(image: Image.Image) -> Dict[str, Any]:
         if face_request.results():
             face_count = len(face_request.results())
             
-            for face_observation in face_request.results():
+            for i, face_observation in enumerate(face_request.results()):
                 # Get face area
                 face_bbox = face_observation.boundingBox()
                 
@@ -94,8 +94,9 @@ def detect_face_quality(image: Image.Image) -> Dict[str, Any]:
                 if face_landmarks_request.results() and len(face_landmarks_request.results()) > 0:
                     landmarks_detected = True
                 
-                # Add face data to results
+                # Add face data to results with id field (converted to string)
                 face_data = {
+                    "id": str(i + 1),  # Add id field as a string
                     "bbox": {
                         "x": float(face_bbox.origin.x),
                         "y": float(face_bbox.origin.y),
