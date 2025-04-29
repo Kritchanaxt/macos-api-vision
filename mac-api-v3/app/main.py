@@ -12,16 +12,15 @@ import uuid
 import json
 
 
-# Import our modules
-# Modify these import paths to point to the correct locations
-# If all Python files are in the same directory, remove the "app" prefix
+
 try:
     # Try importing from app structure first
     from app.ocr.engine import perform_ocr
     from app.face.quality_detection import detect_face_quality
     from app.card.detector import detect_card
     from app.utils.image_processing import convert_to_supported_format
-    from app.utils.perspective_transform import perform_perspective_transform, visualize_perspective_points
+    from app.utils.perspective_transform import perform_perspective_transform_macos as perform_perspective_transform
+    from app.utils.perspective_transform import visualize_perspective_points
 except ImportError:
     # If that fails, try importing from the current directory
     try:
@@ -30,15 +29,11 @@ except ImportError:
         from face.quality_detection import detect_face_quality
         from card.detector import detect_card
         from image_processing import convert_to_supported_format
-        from perspective_transform import perform_perspective_transform, visualize_perspective_points
+        from perspective_transform import perform_perspective_transform_macos as perform_perspective_transform
+        from perspective_transform import visualize_perspective_points
     except ImportError:
         # If that also fails, raise an informative error
         raise ImportError("Could not import required modules. Please check file structure.")
-
-from app.models.schemas import (
-    OCRResponse, OCRRequest, FaceQualityResponse, CardDetectionResponse,
-    PerspectiveTransformRequest, PerspectiveResponse, Point, Optional, List
-)
 
 # Adjust schema imports if needed
 try:
@@ -242,6 +237,10 @@ async def perspective_endpoint(
     height: Optional[int] = Form(None),
     visualize_only: bool = Form(False)  # If true, just return visualization without transformation
 ):
+    # Check operating system
+    if sys.platform != "darwin":
+        raise HTTPException(status_code=400, detail="This API works only on macOS")
+    
     try:
         # Read image file
         image_data = await file.read()
@@ -333,6 +332,10 @@ async def perspective_base64_endpoint(
     height: Optional[int] = Body(None),
     visualize_only: bool = Body(False)
 ):
+    # Check operating system
+    if sys.platform != "darwin":
+        raise HTTPException(status_code=400, detail="This API works only on macOS")
+    
     try:
         # Decode base64 image
         try:

@@ -1,4 +1,3 @@
-import sys
 import numpy as np
 import tempfile
 import os
@@ -6,39 +5,32 @@ import time
 from PIL import Image, ImageDraw
 from typing import List, Dict, Any, Tuple, Optional
 
-def order_points(points: List[Dict[str, float]]) -> List[Dict[str, float]]:
 
-    # Convert to numpy array for easier manipulation
+def order_points(points: List[Dict[str, float]]) -> List[Dict[str, float]]:
     pts = np.zeros((4, 2), dtype="float32")
     for i, point in enumerate(points):
         pts[i] = [point["x"], point["y"]]
     
-    # Sort points by x-coordinate
-    xSorted = pts[np.argsort(pts[:, 0]), :]
+    s = pts.sum(axis=1)
+    d = np.diff(pts, axis=1)
     
-    # Get leftmost and rightmost points
-    leftMost = xSorted[:2, :]
-    rightMost = xSorted[2:, :]
+    rect = np.zeros((4, 2), dtype="float32")
+    rect[0] = pts[np.argmin(s)]  # Top-left: smallest sum
+    rect[2] = pts[np.argmax(s)]  # Bottom-right: largest sum
+    rect[1] = pts[np.argmin(d)]  # Top-right: smallest diff
+    rect[3] = pts[np.argmax(d)]  # Bottom-left: largest diff
     
-    # Sort leftmost points by y-coordinate
-    leftMost = leftMost[np.argsort(leftMost[:, 1]), :]
-    topLeft, bottomLeft = leftMost
+    result = []
+    for i in range(4):
+        result.append({
+            "x": float(rect[i, 0]),
+            "y": float(rect[i, 1])
+        })
     
-    # Sort rightmost points by y-coordinate
-    rightMost = rightMost[np.argsort(rightMost[:, 1]), :]
-    topRight, bottomRight = rightMost
-    
-    # Return in order: top-left, top-right, bottom-right, bottom-left
-    return [
-        {"x": float(topLeft[0]), "y": float(topLeft[1])},
-        {"x": float(topRight[0]), "y": float(topRight[1])},
-        {"x": float(bottomRight[0]), "y": float(bottomRight[1])},
-        {"x": float(bottomLeft[0]), "y": float(bottomLeft[1])}
-    ]
+    return result
+
 
 def calculate_destination_dimensions(src_points: List[Dict[str, float]]) -> Tuple[int, int]:
-   
-    # Calculate width as average of top and bottom sides
     width_top = np.sqrt(
         (src_points[1]["x"] - src_points[0]["x"])**2 + 
         (src_points[1]["y"] - src_points[0]["y"])**2
@@ -49,7 +41,6 @@ def calculate_destination_dimensions(src_points: List[Dict[str, float]]) -> Tupl
         (src_points[2]["y"] - src_points[3]["y"])**2
     )
     
-    # Calculate height as average of left and right sides
     height_left = np.sqrt(
         (src_points[3]["x"] - src_points[0]["x"])**2 + 
         (src_points[3]["y"] - src_points[0]["y"])**2
@@ -60,24 +51,43 @@ def calculate_destination_dimensions(src_points: List[Dict[str, float]]) -> Tupl
         (src_points[2]["y"] - src_points[1]["y"])**2
     )
     
-    # For a more natural result, use the average of each dimension
-    avg_width = (width_top + width_bottom) / 2
-    avg_height = (height_left + height_right) / 2
+    width = int((width_top + width_bottom) / 2)
+    height = int((height_left + height_right) / 2)
     
-    # Round to integers
-    width = max(10, int(avg_width))
-    height = max(10, int(avg_height))
+    width = max(width, 100)
+    height = max(height, 100)
     
-    # Calculate aspect ratio and ensure it's reasonable
-    aspect_ratio = width / height
+    target_aspect = 1.586
+    current_aspect = width / height
     
-    # If aspect ratio is extreme, adjust to reasonable limits
-    if aspect_ratio > 2.0:  # Too wide
-        height = int(width / 2.0)
-    elif aspect_ratio < 0.5:  # Too tall
-        width = int(height / 2.0)
+    if abs(current_aspect - target_aspect) > 0.3:
+        if current_aspect > target_aspect:
+            height = int(width / target_aspect)
+        else:
+            width = int(height * target_aspect)
     
     return width, height
+
+
+def calculate_metrics(width: int, height: int, processing_time: float) -> Dict[str, Any]:
+    return {
+        "format": "PNG",
+        "width": width,
+        "height": height,
+        "dimensions": {"width": width, "height": height},
+        "fast_rate": (width * height) / 1000000,
+        "rack_cooling_rate": (width + height) / 1000,
+        "processing_time": processing_time
+    }
+
+
+def handle_transform_error(e: Exception, image: Image.Image, start_time: float) -> Dict[str, Any]:
+    print(f"Error in perspective transform: {str(e)}")
+    metrics = calculate_metrics(image.width, image.height, time.time() - start_time)
+    metrics["error"] = f"Error occurred: {str(e)}"
+    metrics["output_image"] = image
+    return metrics
+
 
 def perform_perspective_transform_macos(
     image: Image.Image,
@@ -85,28 +95,16 @@ def perform_perspective_transform_macos(
     width: Optional[int] = None,
     height: Optional[int] = None
 ) -> Dict[str, Any]:
-   
-    # Add debug print for troubleshooting
-    print("Starting macOS perspective transform")
+    print("Starting perspective transform with Apple Accelerate API")
     start_time = time.time()
-    temp_filename = None
     
     try:
-        # Import macOS-specific libraries
-        # These imports are inside the function to avoid errors on non-macOS systems
-        import Foundation
-        import Quartz
-        from Cocoa import CIImage, CIContext, CIFilter
-        
-        print("Successfully imported macOS libraries")
-        
         # Validate input points
         if len(src_points) != 4:
             raise ValueError("Exactly 4 points are required for perspective transformation")
         
-        # Order points correctly
+        # Order points correctly (top-left, top-right, bottom-right, bottom-left)
         ordered_points = order_points(src_points)
-        print(f"Ordered points: {ordered_points}")
         
         # If width and height not specified, calculate optimal dimensions
         if width is None or height is None:
@@ -117,287 +115,337 @@ def perform_perspective_transform_macos(
         # Ensure minimum dimensions
         width = max(width, 100)
         height = max(height, 100)
-        print(f"Target dimensions: {width}x{height}")
         
-        # Save image to temporary file
-        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-            temp_filename = tmp.name
-            image.save(temp_filename, 'PNG')
-            print(f"Saved temporary image to {temp_filename}")
-        
-        # Load image using Foundation NSURL
-        image_url = Foundation.NSURL.fileURLWithPath_(temp_filename)
-        print("Created NSURL for image")
-        
-        # Load as CIImage
-        ci_image = CIImage.imageWithContentsOfURL_(image_url)
-        if ci_image is None:
-            raise Exception("Failed to load image as CIImage")
-        print("Loaded image as CIImage")
-        
-        # Get original image dimensions
-        original_width = image.width
-        original_height = image.height
-        
-        # Convert from PIL coordinates (top-left origin) to CI coordinates (bottom-left origin)
-        src_top_left = Quartz.CIVector.vectorWithX_Y_(
-            ordered_points[0]["x"], 
-            original_height - ordered_points[0]["y"]
-        )
-        src_top_right = Quartz.CIVector.vectorWithX_Y_(
-            ordered_points[1]["x"], 
-            original_height - ordered_points[1]["y"]
-        )
-        src_bottom_right = Quartz.CIVector.vectorWithX_Y_(
-            ordered_points[2]["x"], 
-            original_height - ordered_points[2]["y"]
-        )
-        src_bottom_left = Quartz.CIVector.vectorWithX_Y_(
-            ordered_points[3]["x"], 
-            original_height - ordered_points[3]["y"]
-        )
-        print("Created CIVectors for corner points")
-        
-        # Create perspective correction filter
-        perspective_filter = CIFilter.filterWithName_("CIPerspectiveCorrection")
-        perspective_filter.setValue_forKey_(ci_image, "inputImage")
-        perspective_filter.setValue_forKey_(src_top_left, "inputTopLeft")
-        perspective_filter.setValue_forKey_(src_top_right, "inputTopRight")
-        perspective_filter.setValue_forKey_(src_bottom_right, "inputBottomRight")
-        perspective_filter.setValue_forKey_(src_bottom_left, "inputBottomLeft")
-        print("Set up perspective correction filter")
-        
-        # Get the transformed image
-        output_ci_image = perspective_filter.valueForKey_("outputImage")
-        if output_ci_image is None:
-            raise Exception("Failed to perform perspective correction")
-        print("Got output CIImage from filter")
-        
-        # Create CIContext for rendering CIImage
-        context = CIContext.contextWithOptions_(None)
-        
-        # Get extent of output image
-        output_extent = output_ci_image.extent()
-        
-        # Convert CIImage to CGImage
-        cg_image = context.createCGImage_fromRect_(output_ci_image, output_extent)
-        if cg_image is None:
-            raise Exception("Failed to convert CIImage to CGImage")
-        print("Converted to CGImage")
-        
-        # Get actual dimensions of output image
-        result_width = int(output_extent.size.width)
-        result_height = int(output_extent.size.height)
-        
-        # Get bitmap representation of the image
-        provider = Quartz.CGImageGetDataProvider(cg_image)
-        data = Quartz.CGDataProviderCopyData(provider)
-        buffer = memoryview(data)
-        print("Got image data from CGImage")
-        
-        # Create PIL Image from buffer
-        pil_image = Image.frombuffer(
-            "RGBA", 
-            (result_width, result_height), 
-            buffer, 
-            "raw", 
-            "RGBA", 
-            0, 
-            1
-        )
-        print("Created PIL image from buffer")
-        
-        # Resize if specific dimensions requested
-        if width is not None and height is not None and (width != result_width or height != result_height):
-            pil_image = pil_image.resize((width, height), Image.LANCZOS)
-            result_width = width
-            result_height = height
-            print(f"Resized image to {width}x{height}")
-        
-        # Calculate metrics
-        dimensions = {"width": result_width, "height": result_height}
-        fast_rate = (result_width * result_height) / 1000000
-        rack_cooling_rate = (result_width + result_height) / 1000
-        processing_time = time.time() - start_time
-        
-        print(f"macOS transform successful in {processing_time:.2f} seconds")
-        
-        return {
-            "format": "PNG",
-            "width": result_width,
-            "height": result_height,
-            "dimensions": dimensions,
-            "fast_rate": fast_rate,
-            "rack_cooling_rate": rack_cooling_rate,
-            "processing_time": processing_time,
-            "output_image": pil_image
-        }
-        
-    except Exception as e:
-        print(f"Error in macOS perspective transform: {str(e)}")
-        # Handle errors
-        return {
-            "error": f"Error occurred: {str(e)}",
-            "format": "PNG",
-            "width": image.width,
-            "height": image.height,
-            "dimensions": {"width": image.width, "height": image.height},
-            "fast_rate": (image.width * image.height) / 1000000,
-            "rack_cooling_rate": (image.width + image.height) / 1000,
-            "processing_time": time.time() - start_time,
-            "output_image": image
-        }
-    finally:
-        # Clean up temporary file
-        if temp_filename and os.path.exists(temp_filename):
+        # Use Apple's Accelerate framework via vImage
+        try:
+            import Foundation
+            import Accelerate
+            import Quartz
+            from Cocoa import NSImage, NSData
+            from Quartz.CoreGraphics import CGImage
+            import io
+            
+            # Convert PIL image to RGBA if needed
+            if image.mode != 'RGBA':
+                image = image.convert('RGBA')
+            
+            # Save to temporary file for loading
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                temp_file = tmp.name
+                image.save(temp_file, format='PNG')
+            
             try:
-                os.unlink(temp_filename)
-                print(f"Removed temporary file {temp_filename}")
-            except Exception as e:
-                print(f"Failed to remove temporary file: {str(e)}")
-
-def perform_perspective_transform_opencv(
-    image: Image.Image,
-    src_points: List[Dict[str, float]],
-    width: Optional[int] = None,
-    height: Optional[int] = None
-) -> Dict[str, Any]:
-   
-    print("Starting OpenCV perspective transform")
-    start_time = time.time()
-    
-    try:
-        # Try to import OpenCV
-        try:
-            import cv2
-            print("Successfully imported OpenCV")
-        except ImportError:
-            raise ImportError("OpenCV (cv2) is required for this method")
-        
-        # Validate input points
-        if len(src_points) != 4:
-            raise ValueError("Exactly 4 points are required for perspective transformation")
-        
-        # Convert PIL image to OpenCV format
-        img_cv = np.array(image)
-        if len(img_cv.shape) == 3 and img_cv.shape[2] == 4:  # If RGBA
-            img_cv = cv2.cvtColor(img_cv, cv2.COLOR_RGBA2BGR)
-        elif len(img_cv.shape) == 3 and img_cv.shape[2] == 3:  # If RGB
-            img_cv = cv2.cvtColor(img_cv, cv2.COLOR_RGB2BGR)
-        print(f"Converted PIL image to OpenCV format: shape={img_cv.shape}")
-        
-        # Order points correctly
-        ordered_pts = order_points(src_points)
-        print(f"Ordered points: {ordered_pts}")
-        
-        # Extract source points as numpy array
-        src = np.array([
-            [ordered_pts[0]["x"], ordered_pts[0]["y"]],
-            [ordered_pts[1]["x"], ordered_pts[1]["y"]],
-            [ordered_pts[2]["x"], ordered_pts[2]["y"]],
-            [ordered_pts[3]["x"], ordered_pts[3]["y"]]
-        ], dtype=np.float32)
-        
-        # Calculate dimensions if not provided
-        if width is None or height is None:
-            calc_width, calc_height = calculate_destination_dimensions(ordered_pts)
-            width = width or calc_width
-            height = height or calc_height
-        
-        # Ensure minimum dimensions
-        width = max(width, 10)
-        height = max(height, 10)
-        print(f"Target dimensions: {width}x{height}")
-        
-        # Set destination points for a rectangle of the desired dimensions
-        dst = np.array([
-            [0, 0],
-            [width - 1, 0],
-            [width - 1, height - 1],
-            [0, height - 1]
-        ], dtype=np.float32)
-        
-        # Calculate perspective transform matrix
-        M = cv2.getPerspectiveTransform(src, dst)
-        print("Calculated perspective transform matrix")
-        
-        # Apply transformation
-        warped = cv2.warpPerspective(img_cv, M, (width, height))
-        print(f"Applied perspective transform: result shape={warped.shape}")
-        
-        # Convert back to PIL image - make sure we handle RGBA if needed
-        if image.mode == 'RGBA':
-            # Convert BGR to BGRA
-            warped_rgba = cv2.cvtColor(warped, cv2.COLOR_BGR2BGRA)
-            # Set alpha channel to max
-            warped_rgba[:, :, 3] = 255
-            result_image = Image.fromarray(cv2.cvtColor(warped_rgba, cv2.COLOR_BGRA2RGBA))
-        else:
-            result_image = Image.fromarray(cv2.cvtColor(warped, cv2.COLOR_BGR2RGB))
-        print("Converted result back to PIL image")
-        
-        # Calculate metrics
-        dimensions = {"width": width, "height": height}
-        fast_rate = (width * height) / 1000000
-        rack_cooling_rate = (width + height) / 1000
-        processing_time = time.time() - start_time
-        
-        print(f"OpenCV transform successful in {processing_time:.2f} seconds")
-        
-        return {
-            "format": "PNG",
-            "width": width,
-            "height": height,
-            "dimensions": dimensions,
-            "fast_rate": fast_rate,
-            "rack_cooling_rate": rack_cooling_rate,
-            "processing_time": processing_time,
-            "output_image": result_image
-        }
-        
-    except Exception as e:
-        print(f"Error in OpenCV perspective transform: {str(e)}")
-        # Handle errors
-        return {
-            "error": f"Error occurred: {str(e)}",
-            "format": "PNG",
-            "width": image.width,
-            "height": image.height,
-            "dimensions": {"width": image.width, "height": image.height},
-            "fast_rate": (image.width * image.height) / 1000000,
-            "rack_cooling_rate": (image.width + image.height) / 1000,
-            "processing_time": time.time() - start_time,
-            "output_image": image
-        }
-
-def perform_perspective_transform(
-    image: Image.Image,
-    src_points: List[Dict[str, float]],
-    width: Optional[int] = None,
-    height: Optional[int] = None
-) -> Dict[str, Any]:
-  
-    print(f"Starting perspective transform on platform: {sys.platform}")
-    print(f"Input image size: {image.width}x{image.height}, mode: {image.mode}")
-    print(f"Source points: {src_points}")
-    print(f"Requested dimensions: width={width}, height={height}")
-    
-    # Use macOS implementation if on macOS, otherwise use OpenCV
-    if sys.platform == "darwin":
-        try:
-            print("Attempting macOS implementation...")
-            return perform_perspective_transform_macos(image, src_points, width, height)
+                # Create source image buffer
+                source_url = Foundation.NSURL.fileURLWithPath_(temp_file)
+                source_image = CGImage.imageWithContentsOfURL_(source_url)
+                if source_image is None:
+                    raise Exception("Failed to create CGImage from file")
+                
+                # Get image dimensions
+                src_width = source_image.width()
+                src_height = source_image.height()
+                
+                # Create vImage buffer from the CGImage
+                src_format = Accelerate.vImage_CGImageFormat.createWithCGImage_(source_image)
+                
+                error = Foundation.NSInteger(0)
+                src_buffer = Accelerate.vImage_Buffer()
+                src_buffer = Accelerate.vImageBuffer_InitWithCGImage(
+                    src_buffer,
+                    src_format,
+                    None,
+                    Accelerate.kvImageNoFlags,
+                    Foundation.byref(error))
+                
+                if error != 0:
+                    raise Exception(f"Error creating source vImage buffer: {error}")
+                
+                # Create destination vImage buffer
+                dest_buffer = Accelerate.vImage_Buffer()
+                dest_buffer.width = Foundation.NSUInteger(width)
+                dest_buffer.height = Foundation.NSUInteger(height)
+                dest_buffer.rowBytes = Foundation.NSUInteger(4 * width)  # 4 bytes per pixel (RGBA)
+                dest_buffer.data = Foundation.malloc_size(4 * width * height)
+                
+                # Create perspective transform
+                # The points need to be in clockwise order: top-left, top-right, bottom-right, bottom-left
+                src_coords = [
+                    ordered_points[0]["x"], ordered_points[0]["y"],  # top-left
+                    ordered_points[1]["x"], ordered_points[1]["y"],  # top-right
+                    ordered_points[2]["x"], ordered_points[2]["y"],  # bottom-right
+                    ordered_points[3]["x"], ordered_points[3]["y"]   # bottom-left
+                ]
+                
+                # Destination coordinates are the corners of the output image
+                dest_coords = [
+                    0, 0,                # top-left
+                    width, 0,            # top-right
+                    width, height,       # bottom-right
+                    0, height            # bottom-left
+                ]
+                
+                # Create the 3x3 perspective transform matrix
+                perspective_matrix = Accelerate.vImage_AffineTransform_CreatePerspectiveTransform(
+                    Foundation.NSArray.arrayWithArray_(src_coords),
+                    Foundation.NSArray.arrayWithArray_(dest_coords)
+                )
+                
+                # Apply the perspective transform
+                Accelerate.vImageWarpPerspective_ARGB8888(
+                    src_buffer,
+                    dest_buffer,
+                    None,  # No background color (transparent)
+                    perspective_matrix,
+                    Accelerate.kvImageHighQualityResampling,
+                    Foundation.byref(error)
+                )
+                
+                if error != 0:
+                    raise Exception(f"Error applying perspective transform: {error}")
+                
+                # Create CGImage from vImage buffer
+                dest_image = Accelerate.vImageCreateCGImageFromBuffer(
+                    dest_buffer,
+                    src_format,
+                    None,
+                    None,
+                    Accelerate.kvImageNoFlags,
+                    Foundation.byref(error)
+                )
+                
+                if error != 0 or dest_image is None:
+                    raise Exception(f"Error creating CGImage from buffer: {error}")
+                
+                # Convert CGImage to NSImage
+                ns_image = NSImage.alloc().initWithCGImage_size_(
+                    dest_image, 
+                    Foundation.NSMakeSize(width, height)
+                )
+                
+                # Convert NSImage to PNG data
+                tiff_data = ns_image.TIFFRepresentation()
+                bitmap_rep = Quartz.NSBitmapImageRep.imageRepWithData_(tiff_data)
+                png_data = bitmap_rep.representationUsingType_properties_(
+                    Quartz.NSPNGFileType, None
+                )
+                
+                # Create PIL Image from PNG data
+                result_image = Image.open(io.BytesIO(png_data.bytes().tobytes()))
+                
+                # Clean up resources
+                Foundation.free(dest_buffer.data)
+                Accelerate.vImage_AffineTransform_Release(perspective_matrix)
+                
+                # Calculate metrics
+                processing_time = time.time() - start_time
+                metrics = calculate_metrics(result_image.width, result_image.height, processing_time)
+                metrics["output_image"] = result_image
+                metrics["method"] = "Apple Accelerate vImage"
+                
+                print(f"Apple Accelerate vImage transform successful in {processing_time:.2f} seconds")
+                return metrics
+                
+            finally:
+                # Clean up temporary file
+                if os.path.exists(temp_file):
+                    os.unlink(temp_file)
+                
+        except ImportError as e:
+            print(f"Apple Accelerate libraries not available: {str(e)}")
+            raise e
         except Exception as e:
-            print(f"macOS implementation failed: {e}, falling back to OpenCV")
-            return perform_perspective_transform_opencv(image, src_points, width, height)
-    else:
-        print("Not on macOS, using OpenCV implementation")
-        return perform_perspective_transform_opencv(image, src_points, width, height)
+            print(f"Error with Apple Accelerate method: {str(e)}")
+            raise e
+            
+    except Exception as e:
+        # Try to use Core Image as fallback
+        try:
+            import Foundation
+            import Quartz
+            from Cocoa import NSImage, CIImage, CIFilter, CIContext, CIVector
+            import Quartz.CoreGraphics as CG
+            import io
+            
+            print("Attempting Core Image transform as fallback")
+            
+            # Convert PIL image to RGBA if needed
+            if image.mode != 'RGBA':
+                image = image.convert('RGBA')
+            
+            # Save to temporary file for Core Image to load
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                temp_file = tmp.name
+                image.save(temp_file, format='PNG')
+            
+            try:
+                # Create CIImage from the file URL
+                image_url = Foundation.NSURL.fileURLWithPath_(temp_file)
+                ci_image = CIImage.imageWithContentsOfURL_(image_url)
+                if ci_image is None:
+                    raise Exception("Failed to create CIImage from file")
+                
+                # Get original image dimensions
+                original_width = image.width
+                original_height = image.height
+                
+                # IMPORTANT: CIImage coordinates have origin at bottom-left, PIL has origin at top-left
+                # Flip the y-coordinates
+                source_points = [
+                    CG.CGPoint(x=ordered_points[0]["x"], y=original_height - ordered_points[0]["y"]),  # top-left
+                    CG.CGPoint(x=ordered_points[1]["x"], y=original_height - ordered_points[1]["y"]),  # top-right
+                    CG.CGPoint(x=ordered_points[2]["x"], y=original_height - ordered_points[2]["y"]),  # bottom-right
+                    CG.CGPoint(x=ordered_points[3]["x"], y=original_height - ordered_points[3]["y"])   # bottom-left
+                ]
+                
+                # Create a perspective correction filter
+                perspective_transform = CIFilter.filterWithName_("CIPerspectiveTransform")
+                if perspective_transform is None:
+                    raise Exception("Failed to create CIPerspectiveTransform filter")
+                
+                # Configure filter
+                perspective_transform.setValue_forKey_(ci_image, "inputImage")
+                perspective_transform.setValue_forKey_(CIVector.vectorWithCGPoint_(source_points[0]), "inputTopLeft")
+                perspective_transform.setValue_forKey_(CIVector.vectorWithCGPoint_(source_points[1]), "inputTopRight")
+                perspective_transform.setValue_forKey_(CIVector.vectorWithCGPoint_(source_points[3]), "inputBottomLeft")
+                perspective_transform.setValue_forKey_(CIVector.vectorWithCGPoint_(source_points[2]), "inputBottomRight")
+                
+                # Get output image from filter
+                output_ci_image = perspective_transform.valueForKey_("outputImage")
+                if output_ci_image is None:
+                    raise Exception("Failed to apply perspective transform filter")
+                    
+                # Create a context for rendering
+                ci_context = CIContext.contextWithOptions_({"kCIContextUseSoftwareRenderer": False})
+                
+                # Create a CGRect for the desired output size
+                output_rect = CG.CGRectMake(0, 0, width, height)
+                
+                # Create a CGImage from the CIImage, cropped to fit the desired dimensions
+                output_cg_image = ci_context.createCGImage_fromRect_(output_ci_image, output_rect)
+                
+                if output_cg_image is None:
+                    raise Exception("Failed to create CGImage from CIImage")
+                
+                # Convert CGImage to NSImage
+                ns_image = NSImage.alloc().initWithCGImage_size_(output_cg_image, CG.CGSizeMake(width, height))
+                
+                # Convert NSImage to PNG data
+                tiff_data = ns_image.TIFFRepresentation()
+                bitmap_rep = Quartz.NSBitmapImageRep.imageRepWithData_(tiff_data)
+                png_data = bitmap_rep.representationUsingType_properties_(Quartz.NSPNGFileType, None)
+                
+                # Convert back to PIL Image
+                pil_image = Image.open(io.BytesIO(png_data.bytes().tobytes()))
+                
+                # Calculate metrics
+                processing_time = time.time() - start_time
+                
+                metrics = calculate_metrics(pil_image.width, pil_image.height, processing_time)
+                metrics["output_image"] = pil_image
+                metrics["method"] = "Core Image"
+                
+                print(f"Core Image perspective transform successful in {processing_time:.2f} seconds")
+                return metrics
+                
+            finally:
+                # Clean up temporary file
+                if os.path.exists(temp_file):
+                    os.unlink(temp_file)
+                
+        except Exception as core_image_error:
+            # If all else fails, try OpenCV
+            try:
+                import cv2
+                
+                print("Attempting OpenCV transform as third option")
+                
+                # Convert PIL image to OpenCV format
+                img_cv = np.array(image)
+                if image.mode == 'RGBA':
+                    img_cv = cv2.cvtColor(img_cv, cv2.COLOR_RGBA2BGRA)
+                else:
+                    img_cv = cv2.cvtColor(img_cv, cv2.COLOR_RGB2BGR)
+                
+                # Get source points array
+                src_pts = np.array([
+                    [ordered_points[0]["x"], ordered_points[0]["y"]],  # top-left
+                    [ordered_points[1]["x"], ordered_points[1]["y"]],  # top-right
+                    [ordered_points[2]["x"], ordered_points[2]["y"]],  # bottom-right
+                    [ordered_points[3]["x"], ordered_points[3]["y"]]   # bottom-left
+                ], dtype=np.float32)
+                
+                # Define destination points for a rectangle
+                dst_pts = np.array([
+                    [0, 0],               # top-left
+                    [width-1, 0],         # top-right
+                    [width-1, height-1],  # bottom-right
+                    [0, height-1]         # bottom-left
+                ], dtype=np.float32)
+                
+                # Calculate perspective transform matrix
+                transform_matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
+                
+                # Apply perspective transformation with better interpolation
+                warped = cv2.warpPerspective(
+                    img_cv, 
+                    transform_matrix, 
+                    (width, height), 
+                    flags=cv2.INTER_CUBIC,
+                    borderMode=cv2.BORDER_REPLICATE
+                )
+                
+                # Convert back to PIL Image
+                if image.mode == 'RGBA':
+                    warped = cv2.cvtColor(warped, cv2.COLOR_BGRA2RGBA)
+                else:
+                    warped = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
+                
+                result_image = Image.fromarray(warped)
+                
+                # Calculate metrics
+                processing_time = time.time() - start_time
+                metrics = calculate_metrics(width, height, processing_time)
+                metrics["output_image"] = result_image
+                metrics["method"] = "OpenCV"
+                
+                print(f"OpenCV perspective transform successful in {processing_time:.2f} seconds")
+                return metrics
+                
+            except Exception as cv_error:
+                # Last resort: use PIL
+                try:
+                    from PIL import ImageTransform
+                    
+                    print("Attempting PIL-based transform as last resort")
+                    
+                    # Create coefficient matrix for perspective transform
+                    coeffs = ImageTransform.Perspective.getdata(
+                        [(ordered_points[i]["x"], ordered_points[i]["y"]) for i in range(4)],
+                        [(0, 0), (width-1, 0), (width-1, height-1), (0, height-1)]
+                    )
+                    
+                    # Apply transform
+                    result_image = image.transform(
+                        (width, height),
+                        Image.PERSPECTIVE,
+                        coeffs,
+                        Image.BICUBIC
+                    )
+                    
+                    processing_time = time.time() - start_time
+                    metrics = calculate_metrics(width, height, processing_time)
+                    metrics["output_image"] = result_image
+                    metrics["method"] = "PIL Transform"
+                    
+                    print(f"PIL Transform successful in {processing_time:.2f} seconds")
+                    return metrics
+                    
+                except Exception as basic_error:
+                    # If all transforms fail, return the original image with error
+                    return handle_transform_error(e, image, start_time)
+
 
 def visualize_perspective_points(image: Image.Image, points: List[Dict[str, float]]) -> Image.Image:
-    
-    print("Creating visualization of perspective points")
-    
     # Create a copy of the image to draw on
     result = image.copy()
     draw = ImageDraw.Draw(result)
@@ -434,132 +482,43 @@ def visualize_perspective_points(image: Image.Image, points: List[Dict[str, floa
         end = (ordered_points[(i + 1) % 4]["x"], ordered_points[(i + 1) % 4]["y"])
         draw.line([start, end], fill=(255, 0, 0, 200), width=2)
     
-    # Add legend explaining the colors
-    draw.text((10, 10), "1:TL = Top Left (Red)", fill=(255, 0, 0))
-    draw.text((10, 30), "2:TR = Top Right (Green)", fill=(0, 255, 0))
-    draw.text((10, 50), "3:BR = Bottom Right (Blue)", fill=(0, 0, 255))
-    draw.text((10, 70), "4:BL = Bottom Left (Yellow)", fill=(255, 255, 0))
+    # Draw calculated destination dimensions
+    width, height = calculate_destination_dimensions(ordered_points)
     
-    print("Visualization created successfully")
+    # Add informative text to the visualization
+    font_color = (255, 255, 255)
+    bg_color = (0, 0, 0, 160)
+    
+    # Draw a semi-transparent background for text
+    draw.rectangle([(10, 10), (250, 100)], fill=bg_color)
+    
+    # Add legend explaining the colors
+    draw.text((20, 20), "1:TL = Top Left (Red)", fill=(255, 0, 0))
+    draw.text((20, 40), "2:TR = Top Right (Green)", fill=(0, 255, 0))
+    draw.text((20, 60), "3:BR = Bottom Right (Blue)", fill=(0, 0, 255))
+    draw.text((20, 80), "4:BL = Bottom Left (Yellow)", fill=(255, 255, 0))
+    
+    # Add more information about the calculated output dimensions
+    text_y = 120
+    draw.rectangle([(10, text_y), (350, text_y + 60)], fill=bg_color)
+    
+    draw.text((20, text_y), f"Original dimensions: {image.width}x{image.height}", fill=font_color)
+    draw.text((20, text_y + 20), f"Calculated output: {width}x{height}", fill=font_color)
+    
+    # Calculate and show aspect ratio
+    aspect_ratio = width / height if height > 0 else 0
+    draw.text((20, text_y + 40), f"Aspect ratio: {aspect_ratio:.2f}", fill=font_color)
+    
     return result
 
-def detect_rectangle(image: Image.Image) -> List[Dict[str, float]]:
-    
-    print("Attempting to detect rectangle in image")
-    
-    try:
-        import cv2
-        print("Successfully imported OpenCV for rectangle detection")
-    except ImportError:
-        print("OpenCV not available for rectangle detection")
-        raise ImportError("OpenCV (cv2) is required for rectangle detection")
-    
-    try:
-        # Convert PIL image to OpenCV format
-        img_cv = np.array(image)
-        if len(img_cv.shape) == 3 and img_cv.shape[2] == 4:  # If RGBA
-            img_cv_bgr = cv2.cvtColor(img_cv, cv2.COLOR_RGBA2BGR)
-        elif len(img_cv.shape) == 3 and img_cv.shape[2] == 3:  # If RGB
-            img_cv_bgr = cv2.cvtColor(img_cv, cv2.COLOR_RGB2BGR)
-        else:
-            img_cv_bgr = cv2.cvtColor(img_cv, cv2.COLOR_GRAY2BGR)
-        print(f"Converted PIL image to OpenCV format: shape={img_cv_bgr.shape}")
-        
-        # Convert to grayscale for processing
-        img_cv_gray = cv2.cvtColor(img_cv_bgr, cv2.COLOR_BGR2GRAY)
-        
-        # Apply adaptive thresholding
-        thresh = cv2.adaptiveThreshold(
-            img_cv_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-            cv2.THRESH_BINARY, 11, 2
-        )
-        
-        # Apply morphological operations
-        kernel = np.ones((3, 3), np.uint8)
-        morph = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
-        morph = cv2.morphologyEx(morph, cv2.MORPH_OPEN, kernel)
-        
-        # Edge detection
-        edges1 = cv2.Canny(img_cv_gray, 50, 150)
-        edges2 = cv2.Canny(morph, 50, 150)
-        edges = cv2.bitwise_or(edges1, edges2)
-        
-        # Dilate edges
-        edges = cv2.dilate(edges, kernel, iterations=1)
-        
-        # Find contours
-        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        print(f"Found {len(contours)} contours")
-        
-        # Filter by minimum area
-        min_area = image.width * image.height * 0.05
-        contours = [c for c in contours if cv2.contourArea(c) > min_area]
-        print(f"After filtering: {len(contours)} contours")
-        
-        # Sort contours by area
-        contours = sorted(contours, key=cv2.contourArea, reverse=True)
-        
-        # Initialize result
-        rectangle_points = None
-        
-        # Find the best rectangular approximation
-        for contour in contours:
-            peri = cv2.arcLength(contour, True)
-            approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
-            
-            if len(approx) == 4:
-                rectangle_points = approx
-                print("Found exact 4-point rectangle")
-                break
-            elif len(approx) > 4 and len(approx) <= 6:
-                rect = cv2.minAreaRect(contour)
-                box = cv2.boxPoints(rect)
-                box = np.int0(box)
-                rectangle_points = box
-                print(f"Found approximate rectangle ({len(approx)} points, using minimum area rectangle)")
-                break
-        
-        # Fallback if no rectangle found
-        if rectangle_points is None and contours:
-            rect = cv2.minAreaRect(contours[0])
-            box = cv2.boxPoints(rect)
-            box = np.int0(box)
-            rectangle_points = box
-            print("Used minimum area rectangle of largest contour")
-        
-        # Final fallback
-        if rectangle_points is None:
-            h, w = img_cv_gray.shape
-            rectangle_points = np.array([
-                [[0, 0]],
-                [[w-1, 0]],
-                [[w-1, h-1]],
-                [[0, h-1]]
-            ])
-            print("No contours found, using image boundaries")
-        
-        # Convert to our format
-        points = []
-        for point in rectangle_points:
-            if len(point.shape) > 1:
-                points.append({"x": float(point[0][0]), "y": float(point[0][1])})
-            else:
-                points.append({"x": float(point[0]), "y": float(point[1])})
-        
-        # Order points correctly
-        ordered_points = order_points(points)
-        print(f"Final rectangle points: {ordered_points}")
-        return ordered_points
-        
-    except Exception as e:
-        print(f"Rectangle detection failed: {e}")
-        # Return the four corners of the image as fallback
-        w, h = image.size
-        points = [
-            {"x": 0, "y": 0},
-            {"x": w-1, "y": 0},
-            {"x": w-1, "y": h-1},
-            {"x": 0, "y": h-1}
-        ]
-        print(f"Using image corners as fallback: {points}")
-        return points
+
+def detect_rectangle_macos(image: Image.Image) -> List[Dict[str, float]]:
+    # Use image boundaries
+    width, height = image.size
+    points = [
+        {"x": 0, "y": 0},
+        {"x": width-1, "y": 0},
+        {"x": width-1, "y": height-1},
+        {"x": 0, "y": height-1}
+    ]
+    return points
