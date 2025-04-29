@@ -28,4 +28,5 @@ OCR mac api face quality detection Card detection and wrap perspective
 | OCR                    | ตรวจจับข้อความในภาพ             | `VNRecognizeTextRequest`                                                |
 | Face Quality Detection | ตรวจจับใบหน้าและคุณภาพ          | `VNDetectFaceRectanglesRequest`                                        |
 | Card Detection         | ตรวจจับบัตรในภาพ                 | `VNDetectRectanglesRequest`                                            |
-| Wrap Perspective Manual| แก้ไขภาพให้เป็นรูปตรง           | `CIPerspectiveTransform` + `VNImageRequestHandler` / `OpenCV` (`cv2.getPerspectiveTransform`, `cv2.warpPerspective`) |
+| Wrap Perspective Manual| แก้ไขภาพให้เป็นรูปตรง           | vImage_AffineTransform_CreatePerspectiveTransform, vImageWarpPerspective_ARGB8888, CIPerspectiveTransform, CoreImage, cv2.getPerspectiveTransform, cv2.warpPerspective, Image.PERSPECTIVE|
+
