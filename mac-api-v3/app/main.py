@@ -11,8 +11,6 @@ from datetime import datetime
 import uuid
 import json
 
-
-
 try:
     # Try importing from app structure first
     from app.ocr.engine import perform_ocr
@@ -28,9 +26,9 @@ except ImportError:
         from ocr.engine import perform_ocr
         from face.quality_detection import detect_face_quality
         from card.detector import detect_card
-        from image_processing import convert_to_supported_format
-        from perspective_transform import perform_perspective_transform_macos as perform_perspective_transform
-        from perspective_transform import visualize_perspective_points
+        from utils.image_processing import convert_to_supported_format
+        from utils.perspective_transform import perform_perspective_transform_macos as perform_perspective_transform
+        from utils.perspective_transform import visualize_perspective_points
     except ImportError:
         # If that also fails, raise an informative error
         raise ImportError("Could not import required modules. Please check file structure.")
@@ -39,13 +37,15 @@ except ImportError:
 try:
     from app.models.schemas import (
         OCRResponse, OCRRequest, FaceQualityResponse, CardDetectionResponse,
-        PerspectiveTransformRequest, PerspectiveResponse, Point, Optional, List
+        PerspectiveTransformRequest, PerspectiveResponse, Point, Optional, List,
+        TextLine, TextElement, ImageDimensions
     )
 except ImportError:
     try:
         from schemas import (
             OCRResponse, OCRRequest, FaceQualityResponse, CardDetectionResponse,
-            PerspectiveTransformRequest, PerspectiveResponse, Point, Optional, List
+            PerspectiveTransformRequest, PerspectiveResponse, Point, Optional, List,
+            TextLine, TextElement, ImageDimensions
         )
     except ImportError:
         raise ImportError("Could not import schema models. Please check file structure.")
@@ -58,7 +58,7 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 app = FastAPI(
     title="Thai macOS Vision API",
     description="API for Thai OCR, face quality detection, card detection, and perspective transformation using macOS Vision Framework",
-    version="1.4.0"
+    version="1.6.0"  # Updated version to reflect the refactoring
 )
 
 # Configure CORS
@@ -126,11 +126,29 @@ async def ocr_endpoint(
         if "visualization_image" in ocr_result:
             del ocr_result["visualization_image"]
         
+        # Create dimensions object
+        dimensions = ImageDimensions(
+            width=ocr_result["dimensions"]["width"],
+            height=ocr_result["dimensions"]["height"],
+            unit=ocr_result["dimensions"]["unit"]
+        )
+        
+        # Convert text_lines dict to TextLine objects
+        text_lines = {}
+        for key, line in ocr_result["text_lines"].items():
+            text_lines[key] = TextLine(
+                id=line["id"],
+                text=line["text"],
+                confidence=line["confidence"],
+                position=line["position"]
+            )
+        
         return OCRResponse(
-            recognized_text=ocr_result["text"],
+            document_type=ocr_result["document_type"],
+            recognized_text=ocr_result["recognized_text"],
             confidence=ocr_result["confidence"],
-            text_elements=ocr_result["text_elements"],
-            dimensions=ocr_result["dimensions"],
+            text_lines=text_lines,
+            dimensions=dimensions,
             fast_rate=ocr_result["fast_rate"],
             rack_cooling_rate=ocr_result["rack_cooling_rate"],
             processing_time=ocr_result["processing_time"],
@@ -140,6 +158,90 @@ async def ocr_endpoint(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing OCR: {str(e)}")
+
+@app.post("/ocr/base64", response_model=OCRResponse)
+async def ocr_base64_endpoint(
+    image_base64: str = Body(..., embed=True),
+    languages: str = Body("th-TH,en-US"),  # Default: Thai and English
+    recognition_level: str = Body("accurate"),
+    save_visualization: bool = Body(False)  # Option to save visualization with bounding boxes
+):
+    # Check operating system
+    if sys.platform != "darwin":
+        raise HTTPException(status_code=400, detail="This API works only on macOS")
+    
+    try:
+        # Decode base64 image
+        try:
+            # Remove data URI prefix if present
+            if "base64," in image_base64:
+                image_base64 = image_base64.split("base64,")[1]
+                
+            image_data = base64.b64decode(image_base64)
+            image = Image.open(io.BytesIO(image_data))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid base64 image: {str(e)}")
+        
+        # Convert image to supported format
+        processed_image = convert_to_supported_format(image)
+        
+        # Split languages into list
+        language_list = [lang.strip() for lang in languages.split(",")]
+        
+        # Process OCR
+        ocr_result = perform_ocr(processed_image, language_list, recognition_level)
+
+        # Save image to output folder
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"ocr_{timestamp}_{uuid.uuid4().hex[:8]}.png"
+        output_path = os.path.join(OUTPUT_FOLDER, filename)
+        
+        # Save visualization if requested
+        if save_visualization and "visualization_image" in ocr_result:
+            ocr_result["visualization_image"].save(output_path)
+        else:
+            processed_image.save(output_path)
+        
+        # Add output_path to result
+        ocr_result["output_path"] = f"/output/{filename}"
+        
+        # Remove visualization_image from result before returning (not needed in response)
+        if "visualization_image" in ocr_result:
+            del ocr_result["visualization_image"]
+        
+        # Create dimensions object
+        dimensions = ImageDimensions(
+            width=ocr_result["dimensions"]["width"],
+            height=ocr_result["dimensions"]["height"],
+            unit=ocr_result["dimensions"]["unit"]
+        )
+        
+        # Convert text_lines dict to TextLine objects
+        text_lines = {}
+        for key, line in ocr_result["text_lines"].items():
+            text_lines[key] = TextLine(
+                id=line["id"],
+                text=line["text"],
+                confidence=line["confidence"],
+                position=line["position"]
+            )
+        
+        return OCRResponse(
+            document_type=ocr_result["document_type"],
+            recognized_text=ocr_result["recognized_text"],
+            confidence=ocr_result["confidence"],
+            text_lines=text_lines,
+            dimensions=dimensions,
+            fast_rate=ocr_result["fast_rate"],
+            rack_cooling_rate=ocr_result["rack_cooling_rate"],
+            processing_time=ocr_result["processing_time"],
+            text_object_count=ocr_result["text_object_count"],
+            output_path=ocr_result["output_path"]
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing OCR: {str(e)}")
+
 
 @app.post("/face-quality", response_model=FaceQualityResponse)
 async def face_quality_endpoint(

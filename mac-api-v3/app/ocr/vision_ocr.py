@@ -17,6 +17,9 @@ def process_image_with_vision(image, languages: List[str], recognition_level: st
     dimensions = get_image_dimensions(image)
     width, height = dimensions["width"], dimensions["height"]
     
+    # Add unit to dimensions
+    dimensions["unit"] = "pixel"
+    
     # Save image to a temporary file
     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
         temp_filename = tmp.name
@@ -59,7 +62,7 @@ def process_image_with_vision(image, languages: List[str], recognition_level: st
         
         if results:
             text_object_count = len(results)
-            for result in results:
+            for idx, result in enumerate(results):
                 # Extract text and confidence
                 text = result.text()
                 confidence = result.confidence()
@@ -80,15 +83,20 @@ def process_image_with_vision(image, languages: List[str], recognition_level: st
                 w = bbox.size.width * width
                 h = bbox.size.height * height
                 
-                # Add to text elements array
+                # Create unique ID for text element
+                element_id = f"element_{idx+1}"
+                
+                # Add to text elements array with ID and unit
                 text_elements.append({
+                    "id": element_id,
                     "text": text,
                     "confidence": float(confidence),
                     "position": {
                         "x": float(x),
                         "y": float(y),
                         "width": float(w),
-                        "height": float(h)
+                        "height": float(h),
+                        "unit": "pixel"
                     }
                 })
                 
