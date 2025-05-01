@@ -26,10 +26,8 @@ def detect_face_quality(image: Image.Image) -> Dict[str, Any]:
         image.save(temp_filename, 'PNG')
     
     try:
-        # Use NSURL to load the image
         image_url = Foundation.NSURL.fileURLWithPath_(temp_filename)
         
-        # Create handler for face detection
         handler = Vision.VNImageRequestHandler.alloc().initWithURL_options_(image_url, None)
         
         # Create requests for face detection
@@ -56,13 +54,9 @@ def detect_face_quality(image: Image.Image) -> Dict[str, Any]:
                 y = int(face_bbox.origin.y * height)
                 w = int(face_bbox.size.width * width)
                 h = int(face_bbox.size.height * height)
-                
-                # Draw rectangle on image
-                # Vision coordinates have origin at bottom-left, PIL has origin at top-left
-                # Need to convert the y-coordinate
+            
                 rect_y = height - y - h
                 
-                # Draw bounding box with color based on quality (will be updated later)
                 box_color = (255, 0, 0)  # Default red
                 
                 # Analyze face quality

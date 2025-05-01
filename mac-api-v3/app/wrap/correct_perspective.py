@@ -61,11 +61,27 @@ def correct_perspective(image: CIImage, top_left, top_right, bottom_right, botto
               f"BL={ci_bottom_left.X()},{ci_bottom_left.Y()}")
 
         # Check orientation before perspective correction
-        # This detects if the document is upside down or rotated incorrectly
         orientation = detect_document_orientation(ci_top_left, ci_top_right, ci_bottom_right, ci_bottom_left)
+        print(f"Detected document orientation: {orientation}")
         
+        # For upside-down documents, reorder points before correction
+        if orientation == "upside_down":
+            print("Document is upside down, reordering points...")
+            # Swap points: TL↔BR, TR↔BL
+            ci_top_left, ci_bottom_right = ci_bottom_right, ci_top_left
+            ci_top_right, ci_bottom_left = ci_bottom_left, ci_top_right
+        elif orientation == "rotated_90_cw":
+            print("Document is rotated 90° clockwise, reordering points...")
+            # Rotate points counterclockwise: TL→BL→BR→TR→TL
+            ci_top_left, ci_bottom_left, ci_bottom_right, ci_top_right = \
+                ci_top_right, ci_top_left, ci_bottom_left, ci_bottom_right
+        elif orientation == "rotated_90_ccw":
+            print("Document is rotated 90° counterclockwise, reordering points...")
+            # Rotate points clockwise: TL→TR→BR→BL→TL
+            ci_top_left, ci_top_right, ci_bottom_right, ci_bottom_left = \
+                ci_bottom_left, ci_top_left, ci_top_right, ci_bottom_right
+            
         # Apply perspective correction
-        # Set filter parameters
         filter.setValue_forKey_(image, "inputImage")
         filter.setValue_forKey_(ci_top_left, "inputTopLeft")
         filter.setValue_forKey_(ci_top_right, "inputTopRight")
@@ -77,11 +93,11 @@ def correct_perspective(image: CIImage, top_left, top_right, bottom_right, botto
         if output_image is None:
             raise ValueError("CIPerspectiveCorrection filter failed to produce output")
 
-        # Apply rotation based on detected orientation
-        if orientation != "normal":
-            print(f"Detected orientation: {orientation}, applying correction...")
-            output_image = apply_orientation_correction(output_image, orientation)
-
+        # Additional check for orientation: 
+        # Since the perspective correction sometimes doesn't handle rotations correctly,
+        # we'll add a specific check for orientation after the correction
+        output_image = validate_and_correct_orientation(output_image)
+        
         return output_image
 
     except Exception as e:
@@ -89,15 +105,7 @@ def correct_perspective(image: CIImage, top_left, top_right, bottom_right, botto
         raise
 
 def detect_document_orientation(tl, tr, br, bl):
-    """
-    Detect the orientation of the document based on its corners.
-    
-    Args:
-        tl, tr, br, bl: The corner points as CIVectors
-    
-    Returns:
-        str: Orientation type - "normal", "upside_down", "rotated_90_cw", "rotated_90_ccw"
-    """
+  
     # Calculate the width and height of top and bottom sides
     top_width = math.sqrt((tr.X() - tl.X())**2 + (tr.Y() - tl.Y())**2)
     bottom_width = math.sqrt((br.X() - bl.X())**2 + (br.Y() - bl.Y())**2)
@@ -124,30 +132,48 @@ def detect_document_orientation(tl, tr, br, bl):
     elif not top_points_above and not correct_horizontal_order:
         return "upside_down"
     elif top_points_above and not correct_horizontal_order:
-        # If we're in this condition, it likely means the document is rotated 90° CCW
         return "rotated_90_ccw" if is_portrait else "rotated_90_cw"
     elif not top_points_above and correct_horizontal_order:
-        # If we're in this condition, it likely means the document is rotated 90° CW
         return "rotated_90_cw" if is_portrait else "rotated_90_ccw"
     
     # Default fallback
     return "normal"
 
-def apply_orientation_correction(image, orientation):
-    """
-    Apply rotation to correct image orientation.
+def validate_and_correct_orientation(image):
+   
+    width = image.extent().size.width
+    height = image.extent().size.height
     
-    Args:
-        image: CIImage to correct
-        orientation: The detected orientation
-        
-    Returns:
-        CIImage: Corrected image
-    """
+    is_landscape = width > height
+    
+    needs_rotation = False
+    
+    if is_landscape and (width / height > 1.3):
+        needs_rotation = True
+        print("Image appears to be in incorrect orientation based on dimensions")
+    
+    
+    if needs_rotation:
+        transform = CIFilter.filterWithName_("CIAffineTransform")
+        if transform is not None:
+            transform.setValue_forKey_(image, "inputImage")
+            transform.setValue_forKey_(NSNumber.numberWithFloat_(-1.0), "inputScaleX")
+            transform.setValue_forKey_(NSNumber.numberWithFloat_(-1.0), "inputScaleY")
+            transform.setValue_forKey_(NSNumber.numberWithFloat_(width), "inputTranslateX")
+            transform.setValue_forKey_(NSNumber.numberWithFloat_(height), "inputTranslateY")
+            
+            rotated_image = transform.valueForKey_("outputImage")
+            if rotated_image is not None:
+                print("Applied 180-degree rotation to correct orientation")
+                return rotated_image
+    
+    return image
+
+def apply_orientation_correction(image, orientation):
+  
     if orientation == "normal":
         return image
     
-    # Map orientation to rotation angle (in radians for CIStraightenFilter)
     rotation_angles = {
         "upside_down": math.pi,  # 180 degrees
         "rotated_90_cw": -math.pi/2,  # -90 degrees
@@ -156,14 +182,45 @@ def apply_orientation_correction(image, orientation):
     
     angle = rotation_angles.get(orientation, 0)
     
-    if abs(angle) > 0.001:  # Only rotate if angle is not close to zero
-        rotation_filter = CIFilter.filterWithName_("CIStraightenFilter")
-        if rotation_filter is not None:
-            rotation_filter.setValue_forKey_(image, "inputImage")
-            rotation_filter.setValue_forKey_(NSNumber.numberWithFloat_(angle), "inputAngle")
-            rotated_image = rotation_filter.valueForKey_("outputImage")
-            if rotated_image is not None:
-                return rotated_image
+    if abs(angle) > 0.001:  
+
+        width = image.extent().size.width
+        height = image.extent().size.height
+        
+        if abs(angle - math.pi) < 0.01:  
+            transform = CIFilter.filterWithName_("CIAffineTransform")
+            if transform is not None:
+                transform.setValue_forKey_(image, "inputImage")
+                transform.setValue_forKey_(NSNumber.numberWithFloat_(-1.0), "inputScaleX")
+                transform.setValue_forKey_(NSNumber.numberWithFloat_(-1.0), "inputScaleY")
+                transform.setValue_forKey_(NSNumber.numberWithFloat_(width), "inputTranslateX")
+                transform.setValue_forKey_(NSNumber.numberWithFloat_(height), "inputTranslateY")
+                
+                rotated_image = transform.valueForKey_("outputImage")
+                if rotated_image is not None:
+                    return rotated_image
+        
+        elif abs(angle - math.pi/2) < 0.01 or abs(angle + math.pi/2) < 0.01: 
+            transform = CIFilter.filterWithName_("CIAffineTransform")
+            if transform is not None:
+                transform.setValue_forKey_(image, "inputImage")
+                
+                # For 90 degrees CCW (PI/2)
+                if abs(angle - math.pi/2) < 0.01:
+                    transform.setValue_forKey_(NSNumber.numberWithFloat_(0.0), "inputScaleX")
+                    transform.setValue_forKey_(NSNumber.numberWithFloat_(1.0), "inputScaleY")
+                    transform.setValue_forKey_(NSNumber.numberWithFloat_(1.0), "inputShearY")
+                    transform.setValue_forKey_(NSNumber.numberWithFloat_(height), "inputTranslateX")
+                
+                # For 90 degrees CW (-PI/2)
+                elif abs(angle + math.pi/2) < 0.01:
+                    transform.setValue_forKey_(NSNumber.numberWithFloat_(0.0), "inputScaleX")
+                    transform.setValue_forKey_(NSNumber.numberWithFloat_(1.0), "inputScaleY")
+                    transform.setValue_forKey_(NSNumber.numberWithFloat_(-1.0), "inputShearY")
+                    transform.setValue_forKey_(NSNumber.numberWithFloat_(width), "inputTranslateY")
+                
+                rotated_image = transform.valueForKey_("outputImage")
+                if rotated_image is not None:
+                    return rotated_image
     
-    # Return original if rotation fails
     return image

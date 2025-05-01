@@ -13,51 +13,20 @@ import uuid
 import json
 from typing import Dict, List, Optional, Union, Tuple
 
+from app.ocr.engine import perform_ocr
+from app.face.quality_detection import detect_face_quality
+from app.card.detector import detect_card
+from app.utils.image_processing import convert_to_supported_format, pil_to_ci_image, ci_to_pil_image
+from app.wrap.correct_perspective import correct_perspective
+from app.wrap.detect_rectangle import detect_document_edges
+from app.wrap.enhance_image import enhance_image
+from app.utils.image_utils import get_image_dimensions, calculate_fast_rate, calculate_rack_cooling_rate
 
-try:
-    # Try importing from app structure first
-    from app.ocr.engine import perform_ocr
-    from app.face.quality_detection import detect_face_quality
-    from app.card.detector import detect_card
-    from app.utils.image_processing import convert_to_supported_format, pil_to_ci_image, ci_to_pil_image
-    from app.wrap.correct_perspective import correct_perspective
-    from app.wrap.detect_rectangle import detect_document_edges
-    from app.wrap.enhance_image import enhance_image
-    from app.utils.image_utils import get_image_dimensions, calculate_fast_rate, calculate_rack_cooling_rate
-
-except ImportError:
-    # If that fails, try importing from the current directory
-    try:
-        # If the files are in the same directory as main.py
-        from ocr.engine import perform_ocr
-        from face.quality_detection import detect_face_quality
-        from card.detector import detect_card
-        from utils.image_processing import convert_to_supported_format, pil_to_ci_image, ci_to_pil_image
-        from wrap.correct_perspective import correct_perspective
-        from wrap.detect_rectangle import detect_document_edges
-        from wrap.enhance_image import enhance_image
-        from utils.image_utils import get_image_dimensions, calculate_fast_rate, calculate_rack_cooling_rate
-
-    except ImportError:
-        # If that also fails, raise an informative error
-        raise ImportError("Could not import required modules. Please check file structure.")
-
-# Adjust schema imports if needed
-try:
-    from app.models.schemas import (
+from app.models.schemas import (
         OCRResponse, OCRRequest, FaceQualityResponse, CardDetectionResponse,
         PerspectiveTransformRequest, PerspectiveResponse, Point, Optional, List,
         TextLine, TextElement, ImageDimensions
     )
-except ImportError:
-    try:
-        from schemas import (
-            OCRResponse, OCRRequest, FaceQualityResponse, CardDetectionResponse,
-            PerspectiveTransformRequest, PerspectiveResponse, Point, Optional, List,
-            TextLine, TextElement, ImageDimensions, 
-        )
-    except ImportError:
-        raise ImportError("Could not import schema models. Please check file structure.")
 
 
 # Create output folder if it doesn't exist

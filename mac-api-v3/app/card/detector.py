@@ -26,10 +26,7 @@ def detect_card(image: Image.Image) -> Dict[str, Any]:
         image.save(temp_filename, 'PNG')
     
     try:
-        # Use NSURL to load the image
         image_url = Foundation.NSURL.fileURLWithPath_(temp_filename)
-        
-        # Create handler for pattern detection
         handler = Vision.VNImageRequestHandler.alloc().initWithURL_options_(image_url, None)
         
         # Create request for rectangle detection
@@ -48,7 +45,7 @@ def detect_card(image: Image.Image) -> Dict[str, Any]:
         # Check results
         if rectangle_request.results():
             for i, rectangle_observation in enumerate(rectangle_request.results()):
-                # Get rectangle coordinates
+
                 rectangle_box = rectangle_observation.boundingBox()
                 confidence = rectangle_observation.confidence()
                 
@@ -58,9 +55,6 @@ def detect_card(image: Image.Image) -> Dict[str, Any]:
                 w = int(rectangle_box.size.width * width)
                 h = int(rectangle_box.size.height * height)
                 
-                # Draw rectangle on image
-                # Vision coordinates have origin at bottom-left, PIL has origin at top-left
-                # Need to convert the y-coordinate
                 rect_y = height - y - h
                 
                 # Select color based on confidence

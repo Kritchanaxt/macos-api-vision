@@ -26,10 +26,8 @@ def process_image_with_vision(image, languages: List[str], recognition_level: st
         image.save(temp_filename, 'PNG')
     
     try:
-        # Use NSURL to load the image
         image_url = Foundation.NSURL.fileURLWithPath_(temp_filename)
         
-        # Create handler for text recognition
         handler = Vision.VNImageRequestHandler.alloc().initWithURL_options_(image_url, None)
         
         # Configure options for text recognition
@@ -63,18 +61,14 @@ def process_image_with_vision(image, languages: List[str], recognition_level: st
         if results:
             text_object_count = len(results)
             for idx, result in enumerate(results):
-                # Extract text and confidence
+
                 text = result.text()
                 confidence = result.confidence()
                 
-                # Add recognized text
                 recognized_text += text + "\n"
                 
-                # Calculate average confidence
                 confidence_sum += confidence
                 
-                # Get bounding box
-                # In Vision framework, boundingBox() returns a CGRect in normalized coordinates (0-1)
                 bbox = result.boundingBox()
                 
                 # Convert normalized coordinates to actual pixel values

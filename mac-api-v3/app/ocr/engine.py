@@ -17,10 +17,7 @@ except ImportError:
 
 
 def organize_text_elements_into_lines(text_elements: List[Dict]) -> Dict[str, Dict]:
-    """
-    Organize text elements into lines based on their vertical position
-    Returns a dictionary with keys like 'line_1', 'line_2', etc. with clear IDs
-    """
+
     if not text_elements:
         return {}
     
@@ -46,8 +43,6 @@ def organize_text_elements_into_lines(text_elements: List[Dict]) -> Dict[str, Di
     if current_line:
         lines.append(current_line)
     
-    # For each line, sort elements by X position (left to right)
-    # and create a single TextLine object
     text_lines = {}
     for i, line in enumerate(lines):
         # Sort by X position
@@ -85,13 +80,9 @@ def organize_text_elements_into_lines(text_elements: List[Dict]) -> Dict[str, Di
 
 
 def perform_ocr(image: Image.Image, languages: List[str], recognition_level: str) -> Dict[str, Any]:
-    """
-    Perform OCR on the image and return structured data with improved formatting
-    for frontend consumption
-    """
+  
     # Check if Thai language is in the list
     if "th-TH" not in languages and "th" not in languages:
-        # Add Thai support automatically
         languages = ["th-TH"] + languages
     
     # Call OCR function from Vision Framework

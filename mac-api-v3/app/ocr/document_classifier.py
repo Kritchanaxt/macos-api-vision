@@ -2,15 +2,7 @@ from typing import List, Dict, Any
 import re
 
 def classify_document_type(text: str, text_elements: List[Dict]) -> str:
-    """
-    Classify the document type based on its content and format
-    
-    Returns one of:
-    - "card_id" (Thai national ID)
-    - "passport"
-    - "driving_license"
-    - "unknown"
-    """
+ 
     text = text.lower()
     
     # Check for Thai ID card
@@ -52,14 +44,13 @@ def classify_document_type(text: str, text_elements: List[Dict]) -> str:
     
     # Analyze layout based on text elements
     if text_elements and len(text_elements) > 5:
-        # Check for ID card format (usually has structured layout with name, ID number, etc.)
-        # Look for name fields, birth date, issue date - common in ID cards
+        
         name_patterns = [r"name", r"ชื่อ", r"นาย", r"นาง", r"นางสาว"]
         date_patterns = [r"เกิดวันที่", r"date of birth", r"issue", r"วันออกบัตร"]
         
         for pattern in name_patterns + date_patterns:
             for element in text_elements:
                 if re.search(pattern, element["text"].lower()):
-                    return "card_id"  # Most likely an ID card if it has name and date fields
+                    return "card_id"  
     
     return "unknown"
