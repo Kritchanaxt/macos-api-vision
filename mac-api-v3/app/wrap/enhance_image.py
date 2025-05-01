@@ -4,29 +4,76 @@ import objc
 
 def enhance_image(image: CIImage):
     """
-    ปรับปรุงภาพด้วยตัวกรอง sharpen
+    ปรับปรุงภาพด้วยตัวกรอง CoreImage
     Args:
         image: CIImage object จาก CoreImage
     Returns:
         CIImage: ภาพที่ปรับปรุงแล้ว
     """
+    if image is None:
+        raise ValueError("Input image is None")
+        
     try:
-        # Create sharpen filter
-        filter = CIFilter.filterWithName_("CISharpenLuminance")
-        if filter is None:
-            raise ValueError("ไม่สามารถสร้าง CISharpenLuminance filter ได้")
+        # สร้าง filter chain กับการตรวจสอบ null ทุกขั้นตอน
+        enhanced_image = image
         
-        # Set input values
-        filter.setValue_forKey_(image, "inputImage")
-        filter.setValue_forKey_(NSNumber.numberWithFloat_(1.0), "inputSharpness")
+        # 1. แก้ไขสีเพี้ยน: ปรับ Color Controls
+        color_controls = CIFilter.filterWithName_("CIColorControls")
+        if color_controls is not None:
+            color_controls.setValue_forKey_(enhanced_image, "inputImage")
+            color_controls.setValue_forKey_(NSNumber.numberWithFloat_(1.05), "inputSaturation")
+            color_controls.setValue_forKey_(NSNumber.numberWithFloat_(0.02), "inputBrightness")
+            color_controls.setValue_forKey_(NSNumber.numberWithFloat_(1.1), "inputContrast")
+            
+            output = color_controls.valueForKey_("outputImage")
+            if output is not None:
+                enhanced_image = output
         
-        # Get output image
-        output_image = filter.valueForKey_("outputImage")
-        if output_image is None:
-            raise ValueError("ไม่สามารถปรับปรุงภาพได้")
+        # 2. เพิ่มความคมชัดแบบ Unsharp Mask
+        unsharp = CIFilter.filterWithName_("CIUnsharpMask")
+        if unsharp is not None:
+            unsharp.setValue_forKey_(enhanced_image, "inputImage")
+            unsharp.setValue_forKey_(NSNumber.numberWithFloat_(0.6), "inputRadius")
+            unsharp.setValue_forKey_(NSNumber.numberWithFloat_(0.7), "inputIntensity")
+            
+            output = unsharp.valueForKey_("outputImage")
+            if output is not None:
+                enhanced_image = output
+        else:
+            # ถ้าไม่มี UnsharpMask ใช้ SharpenLuminance แทน
+            sharpen = CIFilter.filterWithName_("CISharpenLuminance")
+            if sharpen is not None:
+                sharpen.setValue_forKey_(enhanced_image, "inputImage")
+                sharpen.setValue_forKey_(NSNumber.numberWithFloat_(0.5), "inputSharpness")
+                
+                output = sharpen.valueForKey_("outputImage")
+                if output is not None:
+                    enhanced_image = output
         
-        return output_image
+        # 3. ลดสัญญาณรบกวนเล็กน้อย
+        noise_filter = CIFilter.filterWithName_("CINoiseReduction")
+        if noise_filter is not None:
+            noise_filter.setValue_forKey_(enhanced_image, "inputImage")
+            noise_filter.setValue_forKey_(NSNumber.numberWithFloat_(0.02), "inputNoiseLevel")
+            noise_filter.setValue_forKey_(NSNumber.numberWithFloat_(0.6), "inputSharpness")
+            
+            output = noise_filter.valueForKey_("outputImage")
+            if output is not None:
+                enhanced_image = output
+        
+        # 4. เพิ่มความสดใสแบบเป็นธรรมชาติ
+        vibrance = CIFilter.filterWithName_("CIVibrance")
+        if vibrance is not None:
+            vibrance.setValue_forKey_(enhanced_image, "inputImage")
+            vibrance.setValue_forKey_(NSNumber.numberWithFloat_(0.3), "inputAmount")
+            
+            output = vibrance.valueForKey_("outputImage")
+            if output is not None:
+                enhanced_image = output
+        
+        return enhanced_image
+    
     except Exception as e:
         print(f"Error enhancing image: {str(e)}")
-        # Return original image if enhancement fails
+        # กรณีมีข้อผิดพลาด ส่งคืนภาพต้นฉบับ
         return image

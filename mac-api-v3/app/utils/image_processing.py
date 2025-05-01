@@ -3,11 +3,11 @@ import io
 import Foundation
 import Cocoa
 import Quartz
-import objc
+import numpy as np
 
 def convert_to_supported_format(image: Image.Image) -> Image.Image:
     """
-    Convert image to a format supported by Vision/CoreImage
+    แปลงภาพให้เป็นรูปแบบที่รองรับโดย Vision/CoreImage
     
     Args:
         image: PIL Image
@@ -15,28 +15,28 @@ def convert_to_supported_format(image: Image.Image) -> Image.Image:
     Returns:
         Processed PIL Image
     """
-    # Convert to RGB or RGBA to ensure compatibility with Vision Framework
+    # แปลงเป็น RGB หรือ RGBA เพื่อให้ใช้งานได้กับ Vision Framework
     if image.mode not in ('RGB', 'RGBA'):
         image = image.convert('RGB')
     
-    # Check image size and resize if too large
-    max_dimension = 4000  # Maximum recommended size (pixels)
+    # ตรวจสอบขนาดภาพและปรับขนาดถ้าใหญ่เกินไป
+    max_dimension = 4000  # ขนาดสูงสุดที่แนะนำ (พิกเซล)
     width, height = image.size
     
     if width > max_dimension or height > max_dimension:
-        # Calculate resize ratio
+        # คำนวณอัตราส่วนการย่อขนาด
         scale_ratio = min(max_dimension / width, max_dimension / height)
         new_width = int(width * scale_ratio)
         new_height = int(height * scale_ratio)
         
-        # Resize image
+        # ปรับขนาดภาพ
         image = image.resize((new_width, new_height), Image.LANCZOS)
     
     return image
 
 def pil_to_ci_image(pil_image: Image.Image) -> Cocoa.CIImage:
     """
-    Convert PIL Image to CIImage
+    แปลง PIL Image เป็น CIImage
     
     Args:
         pil_image: PIL Image
@@ -44,24 +44,51 @@ def pil_to_ci_image(pil_image: Image.Image) -> Cocoa.CIImage:
     Returns:
         CIImage object
     """
-    # Convert PIL Image to PNG data
+    # แน่ใจว่าภาพอยู่ในรูปแบบที่เหมาะสม
+    if pil_image.mode not in ('RGB', 'RGBA'):
+        pil_image = pil_image.convert('RGB')
+    
+    # แปลงผ่าน PNG data
     buffer = io.BytesIO()
     pil_image.save(buffer, format="PNG")
     image_data = buffer.getvalue()
     
-    # Convert to NSData
+    # แปลงเป็น NSData
     ns_data = Foundation.NSData.dataWithBytes_length_(image_data, len(image_data))
     
-    # Create CIImage from NSData
+    # สร้าง CIImage จาก NSData
     ci_image = Cocoa.CIImage.imageWithData_(ns_data)
-    if ci_image is None:
-        raise ValueError("Failed to convert PIL Image to CIImage")
     
-    return ci_image
+    if ci_image is not None:
+        return ci_image
+    
+    # ถ้าวิธี PNG ล้มเหลว, ใช้วิธี TIFF
+    buffer = io.BytesIO()
+    pil_image.save(buffer, format="TIFF")
+    image_data = buffer.getvalue()
+    
+    # แปลงเป็น NSData
+    ns_data = Foundation.NSData.dataWithBytes_length_(image_data, len(image_data))
+    
+    # สร้าง CIImage จาก NSData
+    ci_image = Cocoa.CIImage.imageWithData_(ns_data)
+    
+    if ci_image is not None:
+        return ci_image
+    
+    # สร้าง NSImage แล้วแปลงเป็น CIImage ถ้าวิธีตรงยังไม่ได้
+    ns_image = Cocoa.NSImage.alloc().initWithData_(ns_data)
+    ci_image = Cocoa.CIImage.imageWithData_(ns_image.TIFFRepresentation())
+    
+    if ci_image is not None:
+        return ci_image
+    
+    # ถ้าทั้งหมดล้มเหลว ส่งคืนข้อผิดพลาด
+    raise ValueError("Failed to convert PIL Image to CIImage")
 
 def ci_to_pil_image(ci_image: Cocoa.CIImage) -> Image.Image:
     """
-    Convert CIImage to PIL Image
+    แปลง CIImage กลับเป็น PIL Image
     
     Args:
         ci_image: CIImage object
@@ -69,56 +96,64 @@ def ci_to_pil_image(ci_image: Cocoa.CIImage) -> Image.Image:
     Returns:
         PIL Image
     """
-    import numpy as np
-    
     try:
-        # Create CIContext
+        # สร้าง CIContext
         context = Cocoa.CIContext.contextWithOptions_(None)
         
-        # Get the extent of the image
+        # ดึงขนาดภาพ
         extent = ci_image.extent()
         width = int(extent.size.width)
         height = int(extent.size.height)
         
-        # Create CGImage from CIImage
+        # สร้าง CGImage จาก CIImage
         cg_image = context.createCGImage_fromRect_(ci_image, extent)
         if cg_image is None:
             raise ValueError("Failed to create CGImage from CIImage")
         
-        # Create bitmap context
-        colorspace = Quartz.CGColorSpaceCreateDeviceRGB()
-        bitmap_info = Quartz.kCGImageAlphaPremultipliedFirst | Quartz.kCGBitmapByteOrder32Little
+        # สร้าง NSBitmapImageRep จาก CGImage
+        bitmapRep = Cocoa.NSBitmapImageRep.alloc().initWithCGImage_(cg_image)
+        if bitmapRep is None:
+            raise ValueError("Failed to create NSBitmapImageRep")
         
-        # Create bitmap context
-        bitmap_context = Quartz.CGBitmapContextCreate(
-            None, width, height, 8, 4 * width, colorspace, bitmap_info
-        )
+        # แปลงเป็นข้อมูล PNG
+        png_data = bitmapRep.representationUsingType_properties_(Cocoa.NSPNGFileType, None)
+        if png_data is None:
+            raise ValueError("Failed to create PNG data")
         
-        if bitmap_context is None:
-            raise ValueError("Failed to create bitmap context")
+        # แปลงเป็น Python bytes
+        python_data = bytes(png_data)
         
-        # Draw CGImage to bitmap context
-        Quartz.CGContextDrawImage(bitmap_context, Quartz.CGRectMake(0, 0, width, height), cg_image)
-        
-        # Get image data from context
-        cg_image_result = Quartz.CGBitmapContextCreateImage(bitmap_context)
-        
-        if cg_image_result is None:
-            raise ValueError("Failed to create CGImage from bitmap context")
-        
-        # Get image data
-        provider = Quartz.CGImageGetDataProvider(cg_image_result)
-        data_provider = Quartz.CGDataProviderCopyData(provider)
-        
-        # Convert to numpy array
-        buffer = np.frombuffer(data_provider, dtype=np.uint8)
-        
-        # Reshape to image dimensions
-        buffer = buffer.reshape((height, width, 4))
-        
-        # Create PIL Image
-        return Image.fromarray(buffer, mode="RGBA")
+        # สร้าง PIL Image จาก bytes
+        return Image.open(io.BytesIO(python_data))
     
     except Exception as e:
-        print(f"Error converting CIImage to PIL Image: {str(e)}")
-        raise ValueError(f"Failed to convert CIImage to PIL Image: {str(e)}")
+        # ถ้าวิธีข้างต้นล้มเหลว ลองวิธีที่ 2 
+        try:
+            print(f"Primary conversion method failed, trying fallback: {str(e)}")
+            
+            # สร้าง CIContext แบบกำหนดเอง
+            options = {
+                Cocoa.kCIContextUseSoftwareRenderer: False
+            }
+            context = Cocoa.CIContext.contextWithOptions_(options)
+            
+            # ดึงขนาดภาพ
+            extent = ci_image.extent()
+            
+            # สร้าง CGImage
+            cg_image = context.createCGImage_fromRect_(ci_image, extent)
+            
+            # สร้าง NSImage
+            ns_image = Cocoa.NSImage.alloc().initWithCGImage_size_(
+                cg_image, 
+                Cocoa.NSMakeSize(extent.size.width, extent.size.height)
+            )
+            
+            # แปลงเป็น TIFF data
+            tiff_data = ns_image.TIFFRepresentation()
+            
+            # สร้าง PIL Image จาก TIFF data
+            return Image.open(io.BytesIO(bytes(tiff_data)))
+            
+        except Exception as nested_e:
+            raise ValueError(f"All conversion methods failed: {str(nested_e)} (original error: {str(e)})")

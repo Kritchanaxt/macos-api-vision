@@ -1,61 +1,81 @@
 from Cocoa import CIImage, CIFilter
-from Foundation import NSValue
+from Foundation import NSNumber
+from Quartz import CIVector
 import objc
-import Quartz
 
 def correct_perspective(image: CIImage, top_left, top_right, bottom_right, bottom_left):
     """
     ปรับเปอร์สเปคทีฟและครอบตัดภาพด้วย CoreImage
     Args:
         image: CIImage object จาก CoreImage
-        top_left, top_right, bottom_right, bottom_left: จุดมุมของสี่เหลี่ยม
+        top_left, top_right, bottom_right, bottom_left: จุดมุมของสี่เหลี่ยม (CIVector หรืออื่นๆ)
     Returns:
         CIImage: ภาพที่ปรับเปอร์สเปคทีฟแล้ว
     """
     try:
-        # Create perspective correction filter
+        # สร้าง perspective correction filter
         filter = CIFilter.filterWithName_("CIPerspectiveCorrection")
         if filter is None:
             raise ValueError("ไม่สามารถสร้าง CIPerspectiveCorrection filter ได้")
         
-        # Convert NSPoint to CIVector if needed - CoreImage uses lowercase properties
-        # Let's ensure we have CGPoint/NSPoint objects with correct case properties
-        # Some versions might use x/y (lower) and others X/Y (upper)
-        
-        # Create CGPoint parameters consistently (always using lowercase)
-        try:
-            # Create CIVectors from point coordinates
-            from Quartz import CIVector
-            ci_top_left = CIVector.vectorWithX_Y_(float(getattr(top_left, 'x', None) or top_left.X()), 
-                                                float(getattr(top_left, 'y', None) or top_left.Y()))
-            ci_top_right = CIVector.vectorWithX_Y_(float(getattr(top_right, 'x', None) or top_right.X()), 
-                                                 float(getattr(top_right, 'y', None) or top_right.Y()))
-            ci_bottom_right = CIVector.vectorWithX_Y_(float(getattr(bottom_right, 'x', None) or bottom_right.X()), 
-                                                    float(getattr(bottom_right, 'y', None) or bottom_right.Y()))
-            ci_bottom_left = CIVector.vectorWithX_Y_(float(getattr(bottom_left, 'x', None) or bottom_left.X()), 
-                                                   float(getattr(bottom_left, 'y', None) or bottom_left.Y()))
+        # แปลงจุดเป็น CIVector อย่างปลอดภัย
+        def ensure_ci_vector(point):
+            # ถ้าเป็น CIVector อยู่แล้ว ส่งคืนเลย
+            if isinstance(point, CIVector):
+                return point
+                
+            # ถ้าเป็นชนิดอื่น พยายามอ่านค่า x, y
+            try:
+                # วิธีที่ 1: Point มี property x, y (lowercase)
+                if hasattr(point, 'x') and hasattr(point, 'y'):
+                    x = float(point.x)
+                    y = float(point.y)
+                    return CIVector.vectorWithX_Y_(x, y)
+                
+                # วิธีที่ 2: Point มี method X(), Y() (uppercase)
+                elif hasattr(point, 'X') and hasattr(point, 'Y'):
+                    x = float(point.X())
+                    y = float(point.Y())
+                    return CIVector.vectorWithX_Y_(x, y)
+                
+                # วิธีที่ 3: Point เป็น dict with 'x', 'y' keys
+                elif isinstance(point, dict) and 'x' in point and 'y' in point:
+                    x = float(point['x'])
+                    y = float(point['y'])
+                    return CIVector.vectorWithX_Y_(x, y)
+                    
+                # วิธีที่ 4: Point เป็น tuple หรือ list
+                elif hasattr(point, '__len__') and len(point) >= 2:
+                    x = float(point[0])
+                    y = float(point[1])
+                    return CIVector.vectorWithX_Y_(x, y)
+                    
+                else:
+                    raise TypeError(f"ไม่รู้จักชนิดของจุด: {type(point)}")
             
-            # Set input values using CIVectors (which ensures proper formatting)
-            filter.setValue_forKey_(image, "inputImage")
-            filter.setValue_forKey_(ci_top_left, "inputTopLeft")
-            filter.setValue_forKey_(ci_top_right, "inputTopRight")
-            filter.setValue_forKey_(ci_bottom_right, "inputBottomRight")
-            filter.setValue_forKey_(ci_bottom_left, "inputBottomLeft")
-        except Exception as e:
-            # Fallback to trying direct point properties (if CIVector fails)
-            print(f"Warning: Using fallback point conversion method: {str(e)}")
-            filter.setValue_forKey_(image, "inputImage")
-            filter.setValue_forKey_(top_left, "inputTopLeft")
-            filter.setValue_forKey_(top_right, "inputTopRight")
-            filter.setValue_forKey_(bottom_right, "inputBottomRight")
-            filter.setValue_forKey_(bottom_left, "inputBottomLeft")
+            except Exception as e:
+                raise ValueError(f"ไม่สามารถแปลงจุดเป็น CIVector: {type(point)} - {str(e)}")
         
-        # Get output image
+        # แปลงทุกจุดให้เป็น CIVector
+        ci_top_left = ensure_ci_vector(top_left)
+        ci_top_right = ensure_ci_vector(top_right)
+        ci_bottom_right = ensure_ci_vector(bottom_right)
+        ci_bottom_left = ensure_ci_vector(bottom_left)
+        
+        # ตั้งค่า input parameters
+        filter.setValue_forKey_(image, "inputImage")
+        filter.setValue_forKey_(ci_top_left, "inputTopLeft")
+        filter.setValue_forKey_(ci_top_right, "inputTopRight")
+        filter.setValue_forKey_(ci_bottom_right, "inputBottomRight")
+        filter.setValue_forKey_(ci_bottom_left, "inputBottomLeft")
+        
+        # รับ output image
         output_image = filter.valueForKey_("outputImage")
         if output_image is None:
             raise ValueError("ไม่สามารถปรับเปอร์สเปคทีฟได้")
         
         return output_image
+    
     except Exception as e:
         print(f"Error in perspective correction: {str(e)}")
         raise ValueError(f"ไม่สามารถปรับเปอร์สเปคทีฟ: {str(e)}")
