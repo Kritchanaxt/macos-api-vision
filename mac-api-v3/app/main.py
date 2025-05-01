@@ -346,8 +346,6 @@ async def card_detection_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error detecting card: {str(e)}")
 
-# Fixed perspective-related endpoints
-
 @app.post("/perspective", response_model=PerspectiveResponse)
 async def perspective_endpoint(
     file: UploadFile = File(...),
@@ -378,8 +376,7 @@ async def perspective_endpoint(
         # Convert PIL Image to CIImage
         ci_image = pil_to_ci_image(processed_image)
         
-        # Create CIVector points directly instead of using NSPoint
-        # This ensures we're using the correct CoreImage format for points
+        # Create CIVector points directly
         try:
             from Quartz import CIVector
             # Points are expected in order: top-left, top-right, bottom-right, bottom-left
@@ -388,13 +385,8 @@ async def perspective_endpoint(
             bottom_right = CIVector.vectorWithX_Y_(float(points_data[2]["x"]), float(points_data[2]["y"]))
             bottom_left = CIVector.vectorWithX_Y_(float(points_data[3]["x"]), float(points_data[3]["y"]))
         except Exception as e:
-            # If CIVector creation fails, fall back to NSPoint
-            print(f"Warning: CIVector creation failed, trying NSPoint: {str(e)}")
-            from Foundation import NSPoint
-            top_left = NSPoint(x=float(points_data[0]["x"]), y=float(points_data[0]["y"]))
-            top_right = NSPoint(x=float(points_data[1]["x"]), y=float(points_data[1]["y"]))
-            bottom_right = NSPoint(x=float(points_data[2]["x"]), y=float(points_data[2]["y"]))
-            bottom_left = NSPoint(x=float(points_data[3]["x"]), y=float(points_data[3]["y"]))
+            print(f"Warning: CIVector creation failed: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error creating vectors: {str(e)}")
         
         # Apply perspective correction
         try:
