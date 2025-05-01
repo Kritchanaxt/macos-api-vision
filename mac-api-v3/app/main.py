@@ -19,10 +19,11 @@ try:
     from app.ocr.engine import perform_ocr
     from app.face.quality_detection import detect_face_quality
     from app.card.detector import detect_card
-    from app.utils.image_processing import convert_to_supported_format
+    from app.utils.image_processing import convert_to_supported_format, pil_to_ci_image, ci_to_pil_image
     from app.wrap.correct_perspective import correct_perspective
     from app.wrap.detect_rectangle import detect_document_edges
-    from app.wrap.enhance_image import enhance_image  # Import enhance_image
+    from app.wrap.enhance_image import enhance_image
+    from app.utils.image_utils import get_image_dimensions, calculate_fast_rate, calculate_rack_cooling_rate
 
 except ImportError:
     # If that fails, try importing from the current directory
@@ -31,10 +32,11 @@ except ImportError:
         from ocr.engine import perform_ocr
         from face.quality_detection import detect_face_quality
         from card.detector import detect_card
-        from utils.image_processing import convert_to_supported_format
+        from utils.image_processing import convert_to_supported_format, pil_to_ci_image, ci_to_pil_image
         from wrap.correct_perspective import correct_perspective
         from wrap.detect_rectangle import detect_document_edges
-        from wrap.enhance_image import enhance_image  # Import enhance_image
+        from wrap.enhance_image import enhance_image
+        from utils.image_utils import get_image_dimensions, calculate_fast_rate, calculate_rack_cooling_rate
 
     except ImportError:
         # If that also fails, raise an informative error
@@ -83,20 +85,6 @@ app.add_middleware(
 
 # Mount static files directory
 app.mount("/static", StaticFiles(directory=STATIC_FOLDER), name="static")
-
-# Helper functions for image processing
-def get_image_dimensions(image):
-    """Get image dimensions"""
-    width, height = image.size
-    return {"width": width, "height": height, "unit": "pixel"}
-
-def calculate_fast_rate(width, height):
-    """Calculate fast rate based on image dimensions"""
-    return (width * height) / 1000000.0  # Example metric
-
-def calculate_rack_cooling_rate(width, height):
-    """Calculate rack cooling rate based on image dimensions"""
-    return (width + height) / 1000.0  # Example metric
 
 @app.get("/")
 async def root():
@@ -358,6 +346,8 @@ async def card_detection_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error detecting card: {str(e)}")
 
+# Fixed perspective-related endpoints
+
 @app.post("/perspective", response_model=PerspectiveResponse)
 async def perspective_endpoint(
     file: UploadFile = File(...),
@@ -385,64 +375,47 @@ async def perspective_endpoint(
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="Invalid JSON format for points")
         
-        # Convert PIL Image to CoreImage for perspective correction
-        import io
-        from Foundation import NSData
-        from Cocoa import CIImage
-        from Foundation import NSPoint
-        
         # Convert PIL Image to CIImage
-        buffer = io.BytesIO()
-        processed_image.save(buffer, format="PNG")
-        ns_data = NSData.dataWithBytes_length_(buffer.getvalue(), len(buffer.getvalue()))
-        ci_image = CIImage.imageWithData_(ns_data)
+        ci_image = pil_to_ci_image(processed_image)
         
-        # Create NSPoint objects from the provided points
-        # Points are expected in order: top-left, top-right, bottom-right, bottom-left
-        top_left = NSPoint(points_data[0]["x"], points_data[0]["y"])
-        top_right = NSPoint(points_data[1]["x"], points_data[1]["y"])
-        bottom_right = NSPoint(points_data[2]["x"], points_data[2]["y"])
-        bottom_left = NSPoint(points_data[3]["x"], points_data[3]["y"])
+        # Create CIVector points directly instead of using NSPoint
+        # This ensures we're using the correct CoreImage format for points
+        try:
+            from Quartz import CIVector
+            # Points are expected in order: top-left, top-right, bottom-right, bottom-left
+            top_left = CIVector.vectorWithX_Y_(float(points_data[0]["x"]), float(points_data[0]["y"]))
+            top_right = CIVector.vectorWithX_Y_(float(points_data[1]["x"]), float(points_data[1]["y"]))
+            bottom_right = CIVector.vectorWithX_Y_(float(points_data[2]["x"]), float(points_data[2]["y"]))
+            bottom_left = CIVector.vectorWithX_Y_(float(points_data[3]["x"]), float(points_data[3]["y"]))
+        except Exception as e:
+            # If CIVector creation fails, fall back to NSPoint
+            print(f"Warning: CIVector creation failed, trying NSPoint: {str(e)}")
+            from Foundation import NSPoint
+            top_left = NSPoint(x=float(points_data[0]["x"]), y=float(points_data[0]["y"]))
+            top_right = NSPoint(x=float(points_data[1]["x"]), y=float(points_data[1]["y"]))
+            bottom_right = NSPoint(x=float(points_data[2]["x"]), y=float(points_data[2]["y"]))
+            bottom_left = NSPoint(x=float(points_data[3]["x"]), y=float(points_data[3]["y"]))
         
         # Apply perspective correction
-        corrected_ci_image = correct_perspective(ci_image, top_left, top_right, bottom_right, bottom_left)
+        try:
+            corrected_ci_image = correct_perspective(ci_image, top_left, top_right, bottom_right, bottom_left)
+        except Exception as e:
+            print(f"Error in perspective correction function: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"ไม่สามารถปรับเปอร์สเปคทีฟ: {str(e)}")
         
         # Apply image enhancement (Sharpen filter)
-        enhanced_ci_image = enhance_image(corrected_ci_image)
+        try:
+            enhanced_ci_image = enhance_image(corrected_ci_image)
+        except Exception as e:
+            print(f"Error enhancing image: {str(e)}")
+            enhanced_ci_image = corrected_ci_image  # Use uncorrected image if enhancement fails
         
         # Convert CIImage back to PIL Image
-        from Quartz import CIContext
-        import numpy as np
-        
-        context = CIContext.contextWithOptions_(None)
-        cgimage = context.createCGImage_fromRect_(enhanced_ci_image, enhanced_ci_image.extent())
-        
-        # Get dimensions
-        width = int(enhanced_ci_image.extent().size.width)
-        height = int(enhanced_ci_image.extent().size.height)
-        
-        # Create a buffer for the image data
-        from Quartz import CGColorSpaceCreateDeviceRGB, CGBitmapContextCreate, CGRectMake
-        from Quartz import CGContextDrawImage, CGBitmapContextCreateImage
-        
-        colorspace = CGColorSpaceCreateDeviceRGB()
-        context = CGBitmapContextCreate(
-            None, width, height, 8, 4 * width, colorspace,
-            0x2  # kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little
-        )
-        
-        CGContextDrawImage(context, CGRectMake(0, 0, width, height), cgimage)
-        cgimage = CGBitmapContextCreateImage(context)
-        
-        # Get image data from CGImageRef
-        from CoreGraphics import CGDataProviderCopyData, CGImageGetDataProvider
-        data_provider = CGImageGetDataProvider(cgimage)
-        data = CGDataProviderCopyData(data_provider)
-        buffer = np.frombuffer(data, dtype=np.uint8)
-        
-        # Reshape and convert to PIL Image
-        buffer = buffer.reshape((height, width, 4))
-        result_image = Image.fromarray(buffer, mode="RGBA")
+        try:
+            result_image = ci_to_pil_image(enhanced_ci_image)
+        except Exception as e:
+            print(f"Error converting CIImage to PIL: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"ไม่สามารถแปลงภาพ: {str(e)}")
         
         # Resize image if output dimensions are specified (using Pillow as requested)
         if output_width and output_height:
@@ -478,6 +451,7 @@ async def perspective_endpoint(
         return response
         
     except Exception as e:
+        print(f"Error in perspective correction: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error in perspective correction: {str(e)}")
 
 @app.post("/perspective/detect-rectangle", response_model=Dict[str, List[Dict[str, float]]])
@@ -496,33 +470,51 @@ async def detect_rectangle_endpoint(
         # Convert image to supported format
         processed_image = convert_to_supported_format(image)
         
-        # Convert PIL Image to CoreImage
-        import io
-        from Foundation import NSData
-        from Cocoa import CIImage
-        
         # Convert PIL Image to CIImage
-        buffer = io.BytesIO()
-        processed_image.save(buffer, format="PNG")
-        ns_data = NSData.dataWithBytes_length_(buffer.getvalue(), len(buffer.getvalue()))
-        ci_image = CIImage.imageWithData_(ns_data)
+        ci_image = pil_to_ci_image(processed_image)
         
         # Detect document edges
         try:
             top_left, top_right, bottom_right, bottom_left = detect_document_edges(ci_image)
             
-            # Convert NSPoint objects to dictionaries
-            points = [
-                {"x": top_left.x, "y": top_left.y},
-                {"x": top_right.x, "y": top_right.y},
-                {"x": bottom_right.x, "y": bottom_right.y},
-                {"x": bottom_left.x, "y": bottom_left.y}
-            ]
+            # Extract coordinate values safely - handle both CIVector and NSPoint formats
+            points = []
+            
+            # Helper function to safely extract x,y values from point objects
+            def extract_point_coords(point):
+                try:
+                    # Try CIVector X() and Y() methods first
+                    return {"x": float(point.X()), "y": float(point.Y())}
+                except AttributeError:
+                    try:
+                        # Try lowercase x,y properties used in some frameworks
+                        return {"x": float(point.x), "y": float(point.y)}
+                    except AttributeError:
+                        try:
+                            # Try lowercase x(),y() methods
+                            return {"x": float(point.x()), "y": float(point.y())}
+                        except AttributeError:
+                            # Last resort: if we have a tuple
+                            if isinstance(point, tuple) and len(point) >= 2:
+                                return {"x": float(point[0]), "y": float(point[1])}
+                            raise ValueError(f"Cannot extract coordinates from {type(point)}")
+            
+            # Extract coordinates from all points
+            try:
+                points = [
+                    extract_point_coords(top_left),
+                    extract_point_coords(top_right),
+                    extract_point_coords(bottom_right),
+                    extract_point_coords(bottom_left)
+                ]
+            except Exception as e:
+                print(f"Error extracting point coordinates: {str(e)}")
+                raise ValueError(f"Cannot extract point coordinates: {str(e)}")
             
             return {"points": points}
             
         except ValueError as ve:
-            # If no document edges detected, return default points
+            # If no document edges detected, return default points (5% margins)
             width, height = processed_image.size
             points = [
                 {"x": 0.05 * width, "y": 0.05 * height},
@@ -533,6 +525,7 @@ async def detect_rectangle_endpoint(
             return {"points": points}
         
     except Exception as e:
+        print(f"Error detecting rectangle: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error detecting rectangle: {str(e)}")
 
 # Add this at the end of the file

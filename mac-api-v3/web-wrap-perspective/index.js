@@ -29,6 +29,9 @@ const resultImage = document.getElementById('resultImage');
 const resultInfo = document.getElementById('resultInfo');
 const errorMessage = document.getElementById('errorMessage');
 
+// Define the API base URL - update this to match your backend
+const API_BASE_URL = 'http://localhost:8000';
+
 let imageSrc = "";
 let imageBlob = null;
 let points = [
@@ -84,7 +87,7 @@ detectButton.addEventListener('click', async () => {
         const formData = new FormData();
         formData.append('file', imageBlob);
         
-        const response = await fetch('/perspective/detect-rectangle', {
+        const response = await fetch(`${API_BASE_URL}/perspective/detect-rectangle`, {
             method: 'POST',
             body: formData
         });
@@ -273,20 +276,23 @@ correctButton.addEventListener('click', async () => {
         if (outputHeight.value) formData.append('output_height', outputHeight.value);
         
         // Send the API request
-        const response = await fetch('/perspective', {
+        const response = await fetch(`${API_BASE_URL}/perspective`, {
             method: 'POST',
             body: formData
         });
         
         if (!response.ok) {
-            const errorData = await response.json();
+            const errorData = await response.json().catch(() => ({}));
             throw new Error(errorData.detail || 'การปรับภาพล้มเหลว');
         }
         
         const data = await response.json();
         
+        // Build the full URL for the result image
+        const resultImageUrl = new URL(data.output_path, API_BASE_URL).href;
+        
         // Display the result
-        resultImage.src = data.output_path;
+        resultImage.src = resultImageUrl;
         resultContainer.classList.remove('hidden');
         
         // Display info about the processed image
