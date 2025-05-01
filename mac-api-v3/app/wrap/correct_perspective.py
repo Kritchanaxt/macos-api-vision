@@ -5,16 +5,7 @@ import objc
 import math
 
 def correct_perspective(image: CIImage, top_left, top_right, bottom_right, bottom_left):
-    """
-    Corrects the perspective and crops the image using CoreImage.
-
-    Args:
-        image: CIImage object from CoreImage
-        top_left, top_right, bottom_right, bottom_left: Corner points of the
-                                                      rectangle.
-    Returns:
-        CIImage: Perspective-corrected image.
-    """
+   
     try:
         # Create perspective correction filter
         filter = CIFilter.filterWithName_("CIPerspectiveCorrection")
