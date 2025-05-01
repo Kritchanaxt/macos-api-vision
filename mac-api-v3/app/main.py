@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Query, Body
 from fastapi.responses import JSONResponse, Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import io
 from PIL import Image
 import uvicorn
@@ -10,6 +11,8 @@ import base64
 from datetime import datetime
 import uuid
 import json
+from typing import Dict, List, Optional, Union, Tuple
+
 
 try:
     # Try importing from app structure first
@@ -17,8 +20,10 @@ try:
     from app.face.quality_detection import detect_face_quality
     from app.card.detector import detect_card
     from app.utils.image_processing import convert_to_supported_format
-    from app.utils.perspective_transform import perform_perspective_transform_macos as perform_perspective_transform
-    from app.utils.perspective_transform import visualize_perspective_points
+    from app.wrap.correct_perspective import correct_perspective
+    from app.wrap.detect_rectangle import detect_document_edges
+    from app.wrap.enhance_image import enhance_image  # Import enhance_image
+
 except ImportError:
     # If that fails, try importing from the current directory
     try:
@@ -27,8 +32,10 @@ except ImportError:
         from face.quality_detection import detect_face_quality
         from card.detector import detect_card
         from utils.image_processing import convert_to_supported_format
-        from utils.perspective_transform import perform_perspective_transform_macos as perform_perspective_transform
-        from utils.perspective_transform import visualize_perspective_points
+        from wrap.correct_perspective import correct_perspective
+        from wrap.detect_rectangle import detect_document_edges
+        from wrap.enhance_image import enhance_image  # Import enhance_image
+
     except ImportError:
         # If that also fails, raise an informative error
         raise ImportError("Could not import required modules. Please check file structure.")
@@ -45,7 +52,7 @@ except ImportError:
         from schemas import (
             OCRResponse, OCRRequest, FaceQualityResponse, CardDetectionResponse,
             PerspectiveTransformRequest, PerspectiveResponse, Point, Optional, List,
-            TextLine, TextElement, ImageDimensions
+            TextLine, TextElement, ImageDimensions, 
         )
     except ImportError:
         raise ImportError("Could not import schema models. Please check file structure.")
@@ -55,10 +62,14 @@ except ImportError:
 OUTPUT_FOLDER = "output"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
+# Create static folder if it doesn't exist
+STATIC_FOLDER = "static"
+os.makedirs(STATIC_FOLDER, exist_ok=True)
+
 app = FastAPI(
     title="Thai macOS Vision API",
     description="API for Thai OCR, face quality detection, card detection, and perspective transformation using macOS Vision Framework",
-    version="1.6.0"  # Updated version to reflect the refactoring
+    version="1.7.0"  # Updated version to reflect the addition of perspective correction UI
 )
 
 # Configure CORS
@@ -70,10 +81,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount static files directory
+app.mount("/static", StaticFiles(directory=STATIC_FOLDER), name="static")
+
+# Helper functions for image processing
+def get_image_dimensions(image):
+    """Get image dimensions"""
+    width, height = image.size
+    return {"width": width, "height": height, "unit": "pixel"}
+
+def calculate_fast_rate(width, height):
+    """Calculate fast rate based on image dimensions"""
+    return (width * height) / 1000000.0  # Example metric
+
+def calculate_rack_cooling_rate(width, height):
+    """Calculate rack cooling rate based on image dimensions"""
+    return (width + height) / 1000.0  # Example metric
+
 @app.get("/")
 async def root():
     """Root endpoint to check if API is running"""
-    return {"message": "Thai macOS Vision API is ready"}
+    return FileResponse(os.path.join(STATIC_FOLDER, "index.html"))
 
 @app.get("/output/{filename}")
 async def get_output_file(filename: str):
@@ -330,14 +358,12 @@ async def card_detection_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error detecting card: {str(e)}")
 
-
 @app.post("/perspective", response_model=PerspectiveResponse)
 async def perspective_endpoint(
     file: UploadFile = File(...),
-    points: str = Form(...),  # JSON string with points [{"x": x1, "y": y1}, ...]
-    width: Optional[int] = Form(None),
-    height: Optional[int] = Form(None),
-    visualize_only: bool = Form(False)  # If true, just return visualization without transformation
+    points: str = Form(...),  # Format: [{"x":100,"y":100},{"x":300,"y":100},{"x":300,"y":300},{"x":100,"y":300}]
+    output_width: Optional[int] = Form(None),
+    output_height: Optional[int] = Form(None)
 ):
     # Check operating system
     if sys.platform != "darwin":
@@ -353,172 +379,163 @@ async def perspective_endpoint(
         
         # Parse points from JSON string
         try:
-            points_list = json.loads(points)
-            
-            # Validate points
-            if len(points_list) != 4:
-                raise HTTPException(status_code=400, detail="Exactly 4 points are required for perspective transformation")
-            
-            # Validate each point has x and y
-            for point in points_list:
-                if "x" not in point or "y" not in point:
-                    raise HTTPException(status_code=400, detail="Each point must have 'x' and 'y' coordinates")
+            points_data = json.loads(points)
+            if len(points_data) != 4:
+                raise HTTPException(status_code=400, detail="Exactly 4 points must be provided")
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="Invalid JSON format for points")
         
-        # Generate timestamp for filenames
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        unique_id = uuid.uuid4().hex[:8]
+        # Convert PIL Image to CoreImage for perspective correction
+        import io
+        from Foundation import NSData
+        from Cocoa import CIImage
+        from Foundation import NSPoint
         
-        # If visualize_only is True, just return a visualization of the points
-        if visualize_only:
-            visual_image = visualize_perspective_points(processed_image, points_list)
-            
-            # Save visualization
-            filename = f"perspective_viz_{timestamp}_{unique_id}.png"
-            output_path = os.path.join(OUTPUT_FOLDER, filename)
-            visual_image.save(output_path)
-            
-            # Get dimensions
-            dimensions = {
-                "width": visual_image.width,
-                "height": visual_image.height
-            }
-            
-            # Calculate rates
-            fast_rate = (dimensions["width"] * dimensions["height"]) / 1000000
-            rack_cooling_rate = (dimensions["width"] + dimensions["height"]) / 1000
-            
-            return PerspectiveResponse(
-                format="PNG",
-                width=dimensions["width"],
-                height=dimensions["height"],
-                dimensions=dimensions,
-                fast_rate=fast_rate,
-                rack_cooling_rate=rack_cooling_rate,
-                processing_time=0.0,  # Just visualization, no transformation processing
-                output_path=f"/output/{filename}"
-            )
+        # Convert PIL Image to CIImage
+        buffer = io.BytesIO()
+        processed_image.save(buffer, format="PNG")
+        ns_data = NSData.dataWithBytes_length_(buffer.getvalue(), len(buffer.getvalue()))
+        ci_image = CIImage.imageWithData_(ns_data)
         
-        # Perform perspective transformation
-        result = perform_perspective_transform(
-            processed_image,
-            points_list,
-            width=width,
-            height=height
+        # Create NSPoint objects from the provided points
+        # Points are expected in order: top-left, top-right, bottom-right, bottom-left
+        top_left = NSPoint(points_data[0]["x"], points_data[0]["y"])
+        top_right = NSPoint(points_data[1]["x"], points_data[1]["y"])
+        bottom_right = NSPoint(points_data[2]["x"], points_data[2]["y"])
+        bottom_left = NSPoint(points_data[3]["x"], points_data[3]["y"])
+        
+        # Apply perspective correction
+        corrected_ci_image = correct_perspective(ci_image, top_left, top_right, bottom_right, bottom_left)
+        
+        # Apply image enhancement (Sharpen filter)
+        enhanced_ci_image = enhance_image(corrected_ci_image)
+        
+        # Convert CIImage back to PIL Image
+        from Quartz import CIContext
+        import numpy as np
+        
+        context = CIContext.contextWithOptions_(None)
+        cgimage = context.createCGImage_fromRect_(enhanced_ci_image, enhanced_ci_image.extent())
+        
+        # Get dimensions
+        width = int(enhanced_ci_image.extent().size.width)
+        height = int(enhanced_ci_image.extent().size.height)
+        
+        # Create a buffer for the image data
+        from Quartz import CGColorSpaceCreateDeviceRGB, CGBitmapContextCreate, CGRectMake
+        from Quartz import CGContextDrawImage, CGBitmapContextCreateImage
+        
+        colorspace = CGColorSpaceCreateDeviceRGB()
+        context = CGBitmapContextCreate(
+            None, width, height, 8, 4 * width, colorspace,
+            0x2  # kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little
         )
         
-        # Save transformed image
-        filename = f"perspective_{timestamp}_{unique_id}.png"
+        CGContextDrawImage(context, CGRectMake(0, 0, width, height), cgimage)
+        cgimage = CGBitmapContextCreateImage(context)
+        
+        # Get image data from CGImageRef
+        from CoreGraphics import CGDataProviderCopyData, CGImageGetDataProvider
+        data_provider = CGImageGetDataProvider(cgimage)
+        data = CGDataProviderCopyData(data_provider)
+        buffer = np.frombuffer(data, dtype=np.uint8)
+        
+        # Reshape and convert to PIL Image
+        buffer = buffer.reshape((height, width, 4))
+        result_image = Image.fromarray(buffer, mode="RGBA")
+        
+        # Resize image if output dimensions are specified (using Pillow as requested)
+        if output_width and output_height:
+            result_image = result_image.resize((output_width, output_height), Image.LANCZOS)
+        
+        # Save image to output folder
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"perspective_{timestamp}_{uuid.uuid4().hex[:8]}.png"
         output_path = os.path.join(OUTPUT_FOLDER, filename)
-        result["output_image"].save(output_path)
+        result_image.save(output_path)
         
-        # Add output_path to result
-        result["output_path"] = f"/output/{filename}"
+        # Calculate metrics
+        img_dimensions = get_image_dimensions(result_image)
+        fast_rate = calculate_fast_rate(img_dimensions["width"], img_dimensions["height"])
+        rack_cooling_rate = calculate_rack_cooling_rate(img_dimensions["width"], img_dimensions["height"])
         
-        # Remove output_image from result before returning
-        del result["output_image"]
+        # Create response
+        response = PerspectiveResponse(
+            format="png",
+            width=img_dimensions["width"],
+            height=img_dimensions["height"],
+            dimensions=ImageDimensions(
+                width=img_dimensions["width"],
+                height=img_dimensions["height"],
+                unit="pixel"
+            ),
+            fast_rate=fast_rate,
+            rack_cooling_rate=rack_cooling_rate,
+            processing_time=0.0,  # Can add actual processing time if needed
+            output_path=f"/output/{filename}"
+        )
         
-        return PerspectiveResponse(**result)
+        return response
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error performing perspective transformation: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error in perspective correction: {str(e)}")
 
-
-# Add this endpoint to allow input of base64 image instead of file upload
-@app.post("/perspective/base64", response_model=PerspectiveResponse)
-async def perspective_base64_endpoint(
-    image_base64: str = Body(..., embed=True),
-    points: List[Point] = Body(...),
-    width: Optional[int] = Body(None),
-    height: Optional[int] = Body(None),
-    visualize_only: bool = Body(False)
+@app.post("/perspective/detect-rectangle", response_model=Dict[str, List[Dict[str, float]]])
+async def detect_rectangle_endpoint(
+    file: UploadFile = File(...)
 ):
     # Check operating system
     if sys.platform != "darwin":
         raise HTTPException(status_code=400, detail="This API works only on macOS")
     
     try:
-        # Decode base64 image
-        try:
-            # Remove data URI prefix if present (e.g., "data:image/jpeg;base64,")
-            if "base64," in image_base64:
-                image_base64 = image_base64.split("base64,")[1]
-                
-            image_data = base64.b64decode(image_base64)
-            image = Image.open(io.BytesIO(image_data))
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid base64 image: {str(e)}")
+        # Read image file
+        image_data = await file.read()
+        image = Image.open(io.BytesIO(image_data))
         
         # Convert image to supported format
         processed_image = convert_to_supported_format(image)
         
-        # Convert Pydantic Points to dict format
-        points_list = [{"x": point.x, "y": point.y} for point in points]
+        # Convert PIL Image to CoreImage
+        import io
+        from Foundation import NSData
+        from Cocoa import CIImage
         
-        # Validate points
-        if len(points_list) != 4:
-            raise HTTPException(status_code=400, detail="Exactly 4 points are required for perspective transformation")
+        # Convert PIL Image to CIImage
+        buffer = io.BytesIO()
+        processed_image.save(buffer, format="PNG")
+        ns_data = NSData.dataWithBytes_length_(buffer.getvalue(), len(buffer.getvalue()))
+        ci_image = CIImage.imageWithData_(ns_data)
         
-        # Generate timestamp for filenames
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        unique_id = uuid.uuid4().hex[:8]
-        
-        # If visualize_only is True, just return a visualization of the points
-        if visualize_only:
-            visual_image = visualize_perspective_points(processed_image, points_list)
+        # Detect document edges
+        try:
+            top_left, top_right, bottom_right, bottom_left = detect_document_edges(ci_image)
             
-            # Save visualization
-            filename = f"perspective_viz_{timestamp}_{unique_id}.png"
-            output_path = os.path.join(OUTPUT_FOLDER, filename)
-            visual_image.save(output_path)
+            # Convert NSPoint objects to dictionaries
+            points = [
+                {"x": top_left.x, "y": top_left.y},
+                {"x": top_right.x, "y": top_right.y},
+                {"x": bottom_right.x, "y": bottom_right.y},
+                {"x": bottom_left.x, "y": bottom_left.y}
+            ]
             
-            # Get dimensions
-            dimensions = {
-                "width": visual_image.width,
-                "height": visual_image.height
-            }
+            return {"points": points}
             
-            # Calculate rates
-            fast_rate = (dimensions["width"] * dimensions["height"]) / 1000000
-            rack_cooling_rate = (dimensions["width"] + dimensions["height"]) / 1000
-            
-            return PerspectiveResponse(
-                format="PNG",
-                width=dimensions["width"],
-                height=dimensions["height"],
-                dimensions=dimensions,
-                fast_rate=fast_rate,
-                rack_cooling_rate=rack_cooling_rate,
-                processing_time=0.0,
-                output_path=f"/output/{filename}"
-            )
-        
-        # Perform perspective transformation
-        result = perform_perspective_transform(
-            processed_image,
-            points_list,
-            width=width,
-            height=height
-        )
-        
-        # Save transformed image
-        filename = f"perspective_{timestamp}_{unique_id}.png"
-        output_path = os.path.join(OUTPUT_FOLDER, filename)
-        result["output_image"].save(output_path)
-        
-        # Add output_path to result
-        result["output_path"] = f"/output/{filename}"
-        
-        # Remove output_image from result before returning
-        del result["output_image"]
-        
-        return PerspectiveResponse(**result)
+        except ValueError as ve:
+            # If no document edges detected, return default points
+            width, height = processed_image.size
+            points = [
+                {"x": 0.05 * width, "y": 0.05 * height},
+                {"x": 0.95 * width, "y": 0.05 * height},
+                {"x": 0.95 * width, "y": 0.95 * height},
+                {"x": 0.05 * width, "y": 0.95 * height}
+            ]
+            return {"points": points}
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error performing perspective transformation: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error detecting rectangle: {str(e)}")
 
-    
-# Add this section to run the app directly
+# Add this at the end of the file
 if __name__ == "__main__":
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    # Start the FastAPI application
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

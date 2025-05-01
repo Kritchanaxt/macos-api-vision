@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thai Vision API - Perspective Correction</title>
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Thai Vision API - Perspective Correction</h1>
+            <p class="subtitle">ปรับแก้ภาพให้ตรงโดยการลากจุด 4 มุม</p>
+        </header>
+
+        <div class="tabs">
+            <div class="tab active" data-target="upload">อัปโหลดรูปภาพ</div>
+            <div class="tab" data-target="usage">วิธีใช้งาน</div>
+        </div>
+
+        <div class="tab-content active" id="upload">
+            <div class="form-row">
+                <input type="file" id="imageFile" accept="image/*">
+                <button id="uploadButton">อัปโหลด</button>
+                <button id="detectButton" class="button-secondary hidden">ตรวจจับขอบอัตโนมัติ</button>
+            </div>
+
+            <div id="imageContainer" class="image-container hidden">
+                <div class="image-wrapper">
+                    <img id="uploadedImage" src="" alt="Uploaded image">
+                    <div class="point" id="point1" style="top: 10%; left: 10%;">1</div>
+                    <div class="point" id="point2" style="top: 10%; left: 90%;">2</div>
+                    <div class="point" id="point3" style="top: 90%; left: 90%;">3</div>
+                    <div class="point" id="point4" style="top: 90%; left: 10%;">4</div>
+                    <div id="line1" class="line"></div>
+                    <div id="line2" class="line"></div>
+                    <div id="line3" class="line"></div>
+                    <div id="line4" class="line"></div>
+                </div>
+            </div>
+            
+            <div class="dimensions-row hidden" id="dimensionsRow">
+                <div>
+                    <label for="outputWidth">กว้าง:</label>
+                    <input type="number" id="outputWidth" placeholder="พิกเซล">
+                </div>
+                <div>
+                    <label for="outputHeight">สูง:</label>
+                    <input type="number" id="outputHeight" placeholder="พิกเซล">
+                </div>
+            </div>
+    
+            <div class="buttons">
+                <button id="correctButton" disabled>ปรับแก้ภาพ</button>
+                <button id="resetButton" class="button-secondary hidden">รีเซ็ต</button>
+            </div>
+            
+            <div id="errorMessage" class="error hidden"></div>
+    
+            <div class="result-container hidden" id="resultContainer">
+                <h2>ผลลัพธ์</h2>
+                <img id="resultImage" class="result-image" src="" alt="Corrected image">
+                <div id="resultInfo" style="margin-top: 15px;"></div>
+            </div>
+    
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <div class="loading-text">กำลังปรับแก้...</div>
+            </div>
+        </div>
+        
+        <div class="tab-content" id="usage">
+            <h2>วิธีใช้งาน</h2>
+            <ol>
+                <li>กดปุ่ม "อัปโหลด" และเลือกรูปภาพที่ต้องการปรับแก้</li>
+                <li>ลากจุด 4 มุมให้ตรงกับมุมของเอกสารในภาพ หรือกดปุ่ม "ตรวจจับขอบอัตโนมัติ"</li>
+                <li>กำหนดความกว้างและความสูงที่ต้องการ (ไม่บังคับ)</li>
+                <li>กดปุ่ม "ปรับแก้ภาพ" เพื่อประมวลผล</li>
+                <li>ระบบจะปรับมุมมองของภาพให้สี่เหลี่ยมตามจุดที่กำหนด</li>
+            </ol>
+        </div>
+    </div>
+    
+    <script src="index.js"></script>
+</body>
+</html>
