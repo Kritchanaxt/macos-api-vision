@@ -17,6 +17,7 @@ from app.ocr.engine import perform_ocr
 from app.face.quality_detection import detect_face_quality
 from app.card.detector import detect_card
 from app.utils.image_processing import convert_to_supported_format, pil_to_ci_image, ci_to_pil_image
+# Import from the separate modules for better organization
 from app.wrap.correct_perspective import correct_perspective
 from app.wrap.detect_rectangle import detect_document_edges
 from app.wrap.enhance_image import enhance_image
