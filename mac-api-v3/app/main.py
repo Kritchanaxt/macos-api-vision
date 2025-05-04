@@ -30,21 +30,18 @@ from app.models.schemas import (
     )
 
 
-# Create output folder if it doesn't exist
 OUTPUT_FOLDER = "output"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-# Create static folder if it doesn't exist
 STATIC_FOLDER = "static"
 os.makedirs(STATIC_FOLDER, exist_ok=True)
 
 app = FastAPI(
     title="Thai macOS Vision API",
     description="API for Thai OCR, face quality detection, card detection, and perspective transformation using macOS Vision Framework",
-    version="1.7.0"  # Updated version to reflect the addition of perspective correction UI
+    version="1.7.0"  
 )
 
-# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -53,7 +50,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files directory
 app.mount("/static", StaticFiles(directory=STATIC_FOLDER), name="static")
 
 @app.get("/")
@@ -228,90 +224,103 @@ async def ocr_base64_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing OCR: {str(e)}")
 
-
 @app.post("/face-quality", response_model=FaceQualityResponse)
 async def face_quality_endpoint(
     file: UploadFile = File(...),
     save_visualization: bool = Form(True)  # Option to save visualization with bounding boxes
 ):
-    # Check operating system
     if sys.platform != "darwin":
         raise HTTPException(status_code=400, detail="This API works only on macOS")
     
     try:
-        # Read image file
         image_data = await file.read()
         image = Image.open(io.BytesIO(image_data))
         
-        # Convert image to supported format
         processed_image = convert_to_supported_format(image)
         
-        # Check face quality
         face_result = detect_face_quality(processed_image)
         
-        # Save image to output folder
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"face_{timestamp}_{uuid.uuid4().hex[:8]}.png"
         output_path = os.path.join(OUTPUT_FOLDER, filename)
         
-        # Save visualization if requested
         if save_visualization and "output_image" in face_result:
             face_result["output_image"].save(output_path)
         else:
             processed_image.save(output_path)
         
-        # Add output_path to result
         face_result["output_path"] = f"/output/{filename}"
         
-        # Remove output_image from result before returning (not needed in response)
         if "output_image" in face_result:
             del face_result["output_image"]
         
-        return face_result
+        response = FaceQualityResponse(
+            has_face=face_result.get("has_face", False),
+            face_count=face_result.get("face_count", 0),
+            quality_score=face_result.get("quality_score"),
+            position=face_result.get("position"),
+            dimensions=ImageDimensions(
+                width=face_result["dimensions"]["width"],
+                height=face_result["dimensions"]["height"],
+                unit=face_result["dimensions"]["unit"]
+            ) if "dimensions" in face_result else None,
+            fast_rate=face_result.get("fast_rate"),
+            rack_cooling_rate=face_result.get("rack_cooling_rate"),
+            processing_time=face_result.get("processing_time", 0.0),
+            output_path=face_result["output_path"]
+        )
+        
+        return response
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error checking face quality: {str(e)}")
-
 
 @app.post("/card-detect", response_model=CardDetectionResponse)
 async def card_detection_endpoint(
     file: UploadFile = File(...),
     save_visualization: bool = Form(True)  # Option to save visualization with bounding boxes
 ):
-    # Check operating system
     if sys.platform != "darwin":
         raise HTTPException(status_code=400, detail="This API works only on macOS")
     
     try:
-        # Read image file
         image_data = await file.read()
         image = Image.open(io.BytesIO(image_data))
         
-        # Convert image to supported format
         processed_image = convert_to_supported_format(image)
         
-        # Detect cards
         card_result = detect_card(processed_image)
         
-        # Save image to output folder
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"card_{timestamp}_{uuid.uuid4().hex[:8]}.png"
         output_path = os.path.join(OUTPUT_FOLDER, filename)
         
-        # Save visualization if requested
         if save_visualization and "output_image" in card_result:
             card_result["output_image"].save(output_path)
         else:
             processed_image.save(output_path)
         
-        # Add output_path to result
         card_result["output_path"] = f"/output/{filename}"
         
-        # Remove output_image from result before returning (not needed in response)
-        if "output_image" in card_result:
-            del card_result["output_image"]
+        response = CardDetectionResponse(
+            has_card=card_result.get("has_card", False),
+            card_count=card_result.get("card_count", 0),
+            document_type=card_result.get("document_type", "id_card"),
+            confidence=card_result.get("confidence", 0.0),
+            position=card_result.get("position"),
+            dimensions=ImageDimensions(
+                width=card_result["dimensions"]["width"],
+                height=card_result["dimensions"]["height"],
+                unit=card_result["dimensions"]["unit"]
+            ) if "dimensions" in card_result else None,
+            fast_rate=card_result.get("fast_rate"),
+            rack_cooling_rate=card_result.get("rack_cooling_rate"),
+            processing_time=card_result.get("processing_time", 0.0),
+            output_path=card_result["output_path"]
+        )
         
-        return card_result
+        # Step 7: Return the response with the output image path
+        return response
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error detecting card: {str(e)}")
@@ -323,19 +332,15 @@ async def perspective_endpoint(
     output_width: Optional[int] = Form(None),
     output_height: Optional[int] = Form(None)
 ):
-    # Check operating system
     if sys.platform != "darwin":
         raise HTTPException(status_code=400, detail="This API works only on macOS")
     
     try:
-        # Read image file
         image_data = await file.read()
         image = Image.open(io.BytesIO(image_data))
         
-        # Convert image to supported format
         processed_image = convert_to_supported_format(image)
         
-        # Parse points from JSON string
         try:
             points_data = json.loads(points)
             if len(points_data) != 4:
@@ -343,13 +348,10 @@ async def perspective_endpoint(
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="Invalid JSON format for points")
         
-        # Convert PIL Image to CIImage
         ci_image = pil_to_ci_image(processed_image)
         
-        # Create CIVector points directly
         try:
             from Quartz import CIVector
-            # Points are expected in order: top-left, top-right, bottom-right, bottom-left
             top_left = CIVector.vectorWithX_Y_(float(points_data[0]["x"]), float(points_data[0]["y"]))
             top_right = CIVector.vectorWithX_Y_(float(points_data[1]["x"]), float(points_data[1]["y"]))
             bottom_right = CIVector.vectorWithX_Y_(float(points_data[2]["x"]), float(points_data[2]["y"]))
@@ -358,43 +360,36 @@ async def perspective_endpoint(
             print(f"Warning: CIVector creation failed: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error creating vectors: {str(e)}")
         
-        # Apply perspective correction
         try:
             corrected_ci_image = correct_perspective(ci_image, top_left, top_right, bottom_right, bottom_left)
         except Exception as e:
             print(f"Error in perspective correction function: {str(e)}")
             raise HTTPException(status_code=500, detail=f"ไม่สามารถปรับเปอร์สเปคทีฟ: {str(e)}")
         
-        # Apply image enhancement (Sharpen filter)
         try:
             enhanced_ci_image = enhance_image(corrected_ci_image)
         except Exception as e:
             print(f"Error enhancing image: {str(e)}")
             enhanced_ci_image = corrected_ci_image  # Use uncorrected image if enhancement fails
         
-        # Convert CIImage back to PIL Image
         try:
             result_image = ci_to_pil_image(enhanced_ci_image)
         except Exception as e:
             print(f"Error converting CIImage to PIL: {str(e)}")
             raise HTTPException(status_code=500, detail=f"ไม่สามารถแปลงภาพ: {str(e)}")
         
-        # Resize image if output dimensions are specified (using Pillow as requested)
         if output_width and output_height:
             result_image = result_image.resize((output_width, output_height), Image.LANCZOS)
         
-        # Save image to output folder
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"perspective_{timestamp}_{uuid.uuid4().hex[:8]}.png"
         output_path = os.path.join(OUTPUT_FOLDER, filename)
         result_image.save(output_path)
         
-        # Calculate metrics
         img_dimensions = get_image_dimensions(result_image)
         fast_rate = calculate_fast_rate(img_dimensions["width"], img_dimensions["height"])
         rack_cooling_rate = calculate_rack_cooling_rate(img_dimensions["width"], img_dimensions["height"])
         
-        # Create response
         response = PerspectiveResponse(
             format="png",
             width=img_dimensions["width"],
@@ -420,29 +415,22 @@ async def perspective_endpoint(
 async def detect_rectangle_endpoint(
     file: UploadFile = File(...)
 ):
-    # Check operating system
     if sys.platform != "darwin":
         raise HTTPException(status_code=400, detail="This API works only on macOS")
     
     try:
-        # Read image file
         image_data = await file.read()
         image = Image.open(io.BytesIO(image_data))
         
-        # Convert image to supported format
         processed_image = convert_to_supported_format(image)
         
-        # Convert PIL Image to CIImage
         ci_image = pil_to_ci_image(processed_image)
         
-        # Detect document edges
         try:
             top_left, top_right, bottom_right, bottom_left = detect_document_edges(ci_image)
             
-            # Extract coordinate values safely - handle both CIVector and NSPoint formats
             points = []
             
-            # Helper function to safely extract x,y values from point objects
             def extract_point_coords(point):
                 try:
                     # Try CIVector X() and Y() methods first
@@ -461,7 +449,6 @@ async def detect_rectangle_endpoint(
                                 return {"x": float(point[0]), "y": float(point[1])}
                             raise ValueError(f"Cannot extract coordinates from {type(point)}")
             
-            # Extract coordinates from all points
             try:
                 points = [
                     extract_point_coords(top_left),
@@ -490,7 +477,5 @@ async def detect_rectangle_endpoint(
         print(f"Error detecting rectangle: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error detecting rectangle: {str(e)}")
 
-# Add this at the end of the file
 if __name__ == "__main__":
-    # Start the FastAPI application
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

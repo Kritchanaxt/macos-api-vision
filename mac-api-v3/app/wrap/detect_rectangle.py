@@ -8,19 +8,15 @@ import math
 def detect_document_edges(image: CIImage):
   
     try:
-        # Create the request handler
         handler = VNImageRequestHandler.alloc().initWithCIImage_options_(image, None)
         
-        # Create the rectangle detection request with optimized parameters
         request = VNDetectRectanglesRequest.alloc().init()
-        # Tuned parameters for better document detection
         request.setMinimumAspectRatio_(0.2)        # Lower to detect more rectangles
         request.setMaximumAspectRatio_(5.0)        # Higher to handle wide/tall documents
         request.setQuadratureTolerance_(20.0)      # More tolerance for skewed documents
         request.setMinimumSize_(0.1)               # Detect rectangles at least 10% of image size
         request.setMaximumObservations_(8)         # Look for more rectangles to find the best one
         
-        # Perform the request
         error_ptr = objc.nil
         success = handler.performRequests_error_([request], objc.byref(error_ptr))
         
@@ -29,12 +25,10 @@ def detect_document_edges(image: CIImage):
                 print(f"Vision request failed: {error_ptr}")
             raise ValueError("Document edge detection failed")
 
-        # Check results
         results = request.results()
         if results and len(results) > 0:
             print(f"Found {len(results)} rectangles")
             
-            # Get the best rectangle based on a combined scoring system
             best_observation = find_best_rectangle(results, image)
             
             if best_observation is None:
@@ -44,24 +38,20 @@ def detect_document_edges(image: CIImage):
             img_width = image.extent().size.width
             img_height = image.extent().size.height
             
-            # Convert Vision coordinates to CI coordinates
             points = vision_to_ci_points(best_observation, img_width, img_height)
             top_left, top_right, bottom_right, bottom_left = points
             
-            # Debug print
             print(f"Document detection points: TL=({top_left.X()},{top_left.Y()}), " 
                   f"TR=({top_right.X()},{top_right.Y()}), "
                   f"BR=({bottom_right.X()},{bottom_right.Y()}), "
                   f"BL=({bottom_left.X()},{bottom_left.Y()})")
                   
-            # Validate points for sanity
             is_valid = validate_quadrilateral(top_left, top_right, bottom_right, bottom_left, img_width, img_height)
             
             if not is_valid:
                 print("Warning: Detected quadrilateral seems incorrect, using default rectangle")
                 return create_default_rectangle(img_width, img_height)
 
-            # Ensure points are in clockwise order
             points = ensure_clockwise_order(top_left, top_right, bottom_right, bottom_left)
             
             return points
@@ -71,7 +61,6 @@ def detect_document_edges(image: CIImage):
 
     except Exception as e:
         print(f"Error detecting document edges: {str(e)}")
-        # Use default rectangle on error
         if hasattr(image, 'extent') and callable(image.extent):
             return create_default_rectangle(image.extent().size.width, image.extent().size.height)
         else:
@@ -89,24 +78,19 @@ def find_best_rectangle(observations, image):
     for observation in observations:
         confidence = observation.confidence()
         
-        # Get rectangle points
         top_left = observation.topLeft()
         top_right = observation.topRight()
         bottom_right = observation.bottomRight()
         bottom_left = observation.bottomLeft()
         
-        # Calculate width and height in normalized coordinates
         width = ((top_right.x - top_left.x) + (bottom_right.x - bottom_left.x)) / 2
         height = ((bottom_left.y - top_left.y) + (bottom_right.y - top_right.y)) / 2
         
-        # Calculate area
         area = width * height
         
-        # Calculate center point
         center_x = (top_left.x + top_right.x + bottom_right.x + bottom_left.x) / 4
         center_y = (top_left.y + top_right.y + bottom_right.y + bottom_left.y) / 4
         
-        # Distance from center of image (normalized coordinates)
         dist_from_center = math.sqrt((center_x - 0.5)**2 + (center_y - 0.5)**2)
         
         # Calculate various scoring factors
@@ -150,9 +134,6 @@ def find_best_rectangle(observations, image):
 
 def vision_to_ci_points(observation, img_width, img_height):
     def vision_to_ci_point(point, width, height):
-        # Transform normalized Vision coordinates to CI pixel coordinates
-        # Vision uses normalized coordinates (0-1) with origin at bottom-left
-        # Core Image uses pixel coordinates with origin at top-left, so we flip Y
         x = point.x * width
         y = (1.0 - point.y) * height  # Flip Y coordinate for CI coordinate system
         return CIVector.vectorWithX_Y_(x, y)
@@ -167,11 +148,9 @@ def vision_to_ci_points(observation, img_width, img_height):
 
 def ensure_clockwise_order(tl, tr, br, bl):
   
-    # Calculate cross product to determine order orientation
     def cross_product(p1, p2, p3):
         return (p2.X() - p1.X()) * (p3.Y() - p1.Y()) - (p2.Y() - p1.Y()) * (p3.X() - p1.X())
     
-    # Check if points are in clockwise order
     cp = cross_product(tl, tr, br)
     
     if cp >= 0:  # Already clockwise or collinear
@@ -183,11 +162,9 @@ def ensure_clockwise_order(tl, tr, br, bl):
 
 def validate_quadrilateral(tl, tr, br, bl, img_width, img_height):
    
-    # Helper function to calculate distance between two points
     def distance(p1, p2):
         return ((p1.X() - p2.X())**2 + (p1.Y() - p2.Y())**2)**0.5
     
-    # Check if points are within image bounds (with some margin)
     margin = 0.25  # Allow points to be slightly outside image (25%)
     for point in [tl, tr, br, bl]:
         if (point.X() < -margin * img_width or point.X() > img_width * (1 + margin) or

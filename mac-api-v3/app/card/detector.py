@@ -9,138 +9,169 @@ from typing import Dict, Any, List, Tuple
 from PIL import Image, ImageDraw
 from app.utils.image_utils import get_image_dimensions, calculate_fast_rate, calculate_rack_cooling_rate
 
+
 def detect_card(image: Image.Image) -> Dict[str, Any]:
     start_time = time.time()
-    
-    # Get image dimensions
     dimensions = get_image_dimensions(image)
     width, height = dimensions["width"], dimensions["height"]
-    
-    # Create a copy of the image for drawing
-    output_image = image.copy()
-    draw = ImageDraw.Draw(output_image)
-    
-    # Save image to a temporary file
-    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-        temp_filename = tmp.name
-        image.save(temp_filename, 'PNG')
-    
-    try:
-        image_url = Foundation.NSURL.fileURLWithPath_(temp_filename)
-        handler = Vision.VNImageRequestHandler.alloc().initWithURL_options_(image_url, None)
-        
-        # Create request for rectangle detection
-        rectangle_request = Vision.VNDetectRectanglesRequest.alloc().init()
-        rectangle_request.setMinimumAspectRatio_(0.5)  
-        rectangle_request.setMaximumAspectRatio_(2.0)  
-        rectangle_request.setMinimumSize_(0.2)  
-        rectangle_request.setMaximumObservations_(5)  
-        
-        # Process rectangle detection
-        handler.performRequests_error_([rectangle_request], None)
-        
-        # Prepare results
-        cards = []
-        
-        # Check results
-        if rectangle_request.results():
-            for i, rectangle_observation in enumerate(rectangle_request.results()):
 
-                rectangle_box = rectangle_observation.boundingBox()
-                confidence = rectangle_observation.confidence()
-                
-                # Convert normalized coordinates (0-1) to pixel coordinates
-                x = int(rectangle_box.origin.x * width)
-                y = int(rectangle_box.origin.y * height)
-                w = int(rectangle_box.size.width * width)
-                h = int(rectangle_box.size.height * height)
-                
-                rect_y = height - y - h
-                
-                # Select color based on confidence
-                if confidence > 0.8:
-                    box_color = (0, 255, 0)  # High confidence - green
-                elif confidence > 0.5:
-                    box_color = (255, 255, 0)  # Medium confidence - yellow
-                else:
-                    box_color = (255, 0, 0)  # Low confidence - red
-                
-                # Draw rectangle with 3-pixel width
-                draw.rectangle([x, rect_y, x + w, rect_y + h], outline=box_color, width=3)
-                
-                # Add card ID and confidence
-                draw.text((x, rect_y - 20), f"Card #{i+1} ({confidence:.2f})", fill=box_color)
-                
-                # Convert to 4 corner coordinates
-                corners = _convert_bounding_box_to_corners(rectangle_box)
-                
-                # Draw corners as small circles
-                corner_radius = 5
-                for corner in corners:
-                    corner_x = int(corner["x"] * width)
-                    corner_y = height - int(corner["y"] * height)  # Convert to PIL coordinates
-                    draw.ellipse((corner_x - corner_radius, corner_y - corner_radius, 
-                                  corner_x + corner_radius, corner_y + corner_radius), 
-                                  fill=box_color)
-                
-                # Add card data to results
-                card_data = {
-                    "id": str(i + 1),
-                    "corners": corners,
-                    "confidence": float(confidence),
-                    "bbox": {
-                        "x": float(rectangle_box.origin.x),
-                        "y": float(rectangle_box.origin.y),
-                        "width": float(rectangle_box.size.width),
-                        "height": float(rectangle_box.size.height)
-                    }
-                }
-                
-                cards.append(card_data)
-        
-        # Calculate rates
-        card_count = len(cards)
-        fast_rate = calculate_fast_rate(width, height)
-        rack_cooling_rate = calculate_rack_cooling_rate(width, height, card_count)
-        
+    temp_filename = _save_temp_image(image)
+    output_image = image.copy()
+    cards = []
+    max_confidence = 0.0
+    best_card_position = None
+
+    try:
+        handler = Vision.VNImageRequestHandler.alloc().initWithURL_options_(
+            Foundation.NSURL.fileURLWithPath_(temp_filename), None
+        )
+
+        cards = _detect_with_rectangle_request(handler, width, height)
+
+        if not cards:
+            cards = _detect_with_document_request(handler, width, height)
+
+        cards, max_confidence, best_card_position = _filter_cards(cards)
+
+        draw = ImageDraw.Draw(output_image)
+        for card in cards:
+            pos = card["position"]
+            confidence = card["confidence"]
+            color = (0, 255, 0)  # Set color to green by default
+            draw.rectangle([pos["x"], pos["y"], pos["x"] + pos["width"], pos["y"] + pos["height"]],
+                           outline=color, width=4)
+            draw.text((pos["x"], pos["y"] - 20), f"Confidence: {confidence:.2f}", fill=color)  # Confidence text
+
         return {
+            "has_card": len(cards) > 0,
+            "card_count": len(cards),
+            "document_type": "id_card" if cards else "unknown",
+            "confidence": max_confidence,
+            "position": best_card_position,
             "cards": cards,
             "dimensions": dimensions,
-            "fast_rate": fast_rate,
-            "rack_cooling_rate": rack_cooling_rate,
+            "fast_rate": calculate_fast_rate(width, height),
+            "rack_cooling_rate": calculate_rack_cooling_rate(width, height, len(cards)),
             "processing_time": time.time() - start_time,
-            "output_image": output_image  # Return the image with bounding boxes
+            "output_image": output_image
         }
-    
+
     except Exception as e:
         return {
+            "has_card": False,
+            "card_count": 0,
+            "document_type": "unknown",
+            "confidence": 0.0,
+            "position": None,
             "error": f"Error occurred: {str(e)}",
             "cards": [],
             "dimensions": dimensions,
             "fast_rate": calculate_fast_rate(width, height),
             "rack_cooling_rate": calculate_rack_cooling_rate(width, height, 0),
             "processing_time": time.time() - start_time,
-            "output_image": image  # Return original image in case of error
+            "output_image": output_image
         }
     finally:
-        # Delete temporary file
         if os.path.exists(temp_filename):
             os.unlink(temp_filename)
 
-def _convert_bounding_box_to_corners(bbox) -> List[Dict[str, float]]:
-    # Extract bounding box values
-    x = float(bbox.origin.x)
-    y = float(bbox.origin.y)
-    width = float(bbox.size.width)
-    height = float(bbox.size.height)
-    
-    # Calculate coordinates for all 4 corners
-    # Vision framework uses coordinate system with (0,0) at bottom-left
-    corners = [
-        {"x": x, "y": y},  # Bottom-left corner
-        {"x": x + width, "y": y},  # Bottom-right corner
-        {"x": x + width, "y": y + height},  # Top-right corner
-        {"x": x, "y": y + height}  # Top-left corner
+
+def _save_temp_image(image):
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        image.save(tmp.name, "PNG")
+        return tmp.name
+
+
+def _detect_with_rectangle_request(handler, width, height) -> List[Dict[str, Any]]:
+    request = Vision.VNDetectRectanglesRequest.alloc().init()
+    request.setMinimumAspectRatio_(0.5)
+    request.setMaximumAspectRatio_(2.2)
+    request.setMinimumSize_(0.15)
+    request.setMaximumObservations_(5)
+    request.setQuadratureTolerance_(8.0)
+
+    success, error = handler.performRequests_error_([request], None)
+    if error:
+        return []
+
+    results = []
+    for i, obs in enumerate(request.results() or []):
+        bbox = obs.boundingBox()
+        confidence = obs.confidence()
+        x, y = bbox.origin.x * width, (1.0 - bbox.origin.y - bbox.size.height) * height
+        w, h = bbox.size.width * width, bbox.size.height * height
+        aspect_ratio = w / h
+        is_card_like = 1.3 <= aspect_ratio <= 1.9
+        final_conf = confidence * (1.0 if is_card_like else 0.7)
+
+        results.append({
+            "id": f"card-{i}",
+            "position": {"x": x, "y": y, "width": w, "height": h},
+            "confidence": final_conf,
+            "is_card_like": is_card_like,
+            "aspect_ratio": aspect_ratio,
+            "corners": _convert_bounding_box_to_corners(bbox, width, height)
+        })
+    return results
+
+
+def _detect_with_document_request(handler, width, height) -> List[Dict[str, Any]]:
+    request = Vision.VNDetectDocumentSegmentationRequest.alloc().init()
+    success, error = handler.performRequests_error_([request], None)
+    if error:
+        return []
+
+    results = []
+    for i, obs in enumerate(request.results() or []):
+        bbox = obs.boundingBox()
+        x, y = bbox.origin.x * width, (1.0 - bbox.origin.y - bbox.size.height) * height
+        w, h = bbox.size.width * width, bbox.size.height * height
+        aspect_ratio = w / h
+        confidence = 0.6  # Estimated for fallback
+
+        results.append({
+            "id": f"doc-{i}",
+            "position": {"x": x, "y": y, "width": w, "height": h},
+            "confidence": confidence,
+            "is_card_like": 1.3 <= aspect_ratio <= 1.9,
+            "aspect_ratio": aspect_ratio,
+            "corners": _convert_bounding_box_to_corners(bbox, width, height)
+        })
+    return results
+
+
+def _filter_cards(cards: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], float, Dict[str, Any]]:
+    if not cards:
+        return [], 0.0, None
+
+    cards.sort(key=lambda c: c["confidence"], reverse=True)
+    best = cards[0]
+    filtered = [best]
+
+    for other in cards[1:]:
+        if not _has_significant_overlap(best["position"], other["position"]):
+            filtered.append(other)
+
+    return filtered, best["confidence"], best["position"]
+
+
+def _convert_bounding_box_to_corners(bbox, width, height) -> List[Dict[str, float]]:
+    x, y, w, h = bbox.origin.x, bbox.origin.y, bbox.size.width, bbox.size.height
+    return [
+        {"x": x * width, "y": (1 - y - h) * height},
+        {"x": x * width, "y": (1 - y) * height},
+        {"x": (x + w) * width, "y": (1 - y) * height},
+        {"x": (x + w) * width, "y": (1 - y - h) * height}
     ]
-    
-    return corners
+
+
+def _has_significant_overlap(b1, b2, threshold=0.7):
+    x1 = max(b1["x"], b2["x"])
+    y1 = max(b1["y"], b2["y"])
+    x2 = min(b1["x"] + b1["width"], b2["x"] + b2["width"])
+    y2 = min(b1["y"] + b1["height"], b2["y"] + b2["height"])
+    if x2 <= x1 or y2 <= y1:
+        return False
+    inter_area = (x2 - x1) * (y2 - y1)
+    union_area = b1["width"] * b1["height"] + b2["width"] * b2["height"] - inter_area
+    return (inter_area / union_area) > threshold
