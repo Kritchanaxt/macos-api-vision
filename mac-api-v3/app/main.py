@@ -6,7 +6,6 @@ import io
 from PIL import Image
 import sys
 import os
-import base64
 from datetime import datetime
 import uuid
 import json
@@ -71,34 +70,26 @@ async def ocr_endpoint(
     save_visualization: bool = Form(False)  
 ):  
     try:
-        # Read image file
         image_data = await file.read()
         image = Image.open(io.BytesIO(image_data))
         
-        # Convert image to supported format
         processed_image = convert_to_supported_format(image)
         
-        # Split languages into list
         language_list = [lang.strip() for lang in languages.split(",")]
         
-        # Process OCR
         ocr_result = perform_ocr(processed_image, language_list, recognition_level)
 
-        # Save image to output folder
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"ocr_{timestamp}_{uuid.uuid4().hex[:8]}.png"
         output_path = os.path.join(OUTPUT_FOLDER, filename)
         
-        # Save visualization if requested
         if save_visualization and "visualization_image" in ocr_result:
             ocr_result["visualization_image"].save(output_path)
         else:
             processed_image.save(output_path)
         
-        # Add output_path to result
         ocr_result["output_path"] = f"/output/{filename}"
         
-        # Remove visualization_image from result before returning (not needed in response)
         if "visualization_image" in ocr_result:
             del ocr_result["visualization_image"]
         
@@ -136,10 +127,8 @@ async def ocr_endpoint(
 @app.post("/face-quality", response_model=FaceQualityResponse)
 async def face_quality_endpoint(
     file: UploadFile = File(...),
-    save_visualization: bool = Form(True)  # Option to save visualization with bounding boxes
+    save_visualization: bool = Form(True) 
 ):
-    if sys.platform != "darwin":
-        raise HTTPException(status_code=400, detail="This API works only on macOS")
     
     try:
         image_data = await file.read()
@@ -187,10 +176,8 @@ async def face_quality_endpoint(
 @app.post("/card-detect", response_model=CardDetectionResponse)
 async def card_detection_endpoint(
     file: UploadFile = File(...),
-    save_visualization: bool = Form(True)  # Option to save visualization with bounding boxes
+    save_visualization: bool = Form(True)  
 ):
-    if sys.platform != "darwin":
-        raise HTTPException(status_code=400, detail="This API works only on macOS")
     
     try:
         image_data = await file.read()
@@ -228,7 +215,6 @@ async def card_detection_endpoint(
             output_path=card_result["output_path"]
         )
         
-        # Step 7: Return the response with the output image path
         return response
         
     except Exception as e:
@@ -237,12 +223,10 @@ async def card_detection_endpoint(
 @app.post("/perspective", response_model=PerspectiveResponse)
 async def perspective_endpoint(
     file: UploadFile = File(...),
-    points: str = Form(...),  # Format: [{"x":100,"y":100},{"x":300,"y":100},{"x":300,"y":300},{"x":100,"y":300}]
+    points: str = Form(...),  
     output_width: Optional[int] = Form(None),
     output_height: Optional[int] = Form(None)
 ):
-    if sys.platform != "darwin":
-        raise HTTPException(status_code=400, detail="This API works only on macOS")
     
     try:
         image_data = await file.read()
@@ -279,7 +263,7 @@ async def perspective_endpoint(
             enhanced_ci_image = enhance_image(corrected_ci_image)
         except Exception as e:
             print(f"Error enhancing image: {str(e)}")
-            enhanced_ci_image = corrected_ci_image  # Use uncorrected image if enhancement fails
+            enhanced_ci_image = corrected_ci_image  
         
         try:
             result_image = ci_to_pil_image(enhanced_ci_image)
@@ -310,7 +294,7 @@ async def perspective_endpoint(
             ),
             fast_rate=fast_rate,
             rack_cooling_rate=rack_cooling_rate,
-            processing_time=0.0,  # Can add actual processing time if needed
+            processing_time=0.0,  
             output_path=f"/output/{filename}"
         )
         
@@ -323,9 +307,7 @@ async def perspective_endpoint(
 @app.post("/perspective/detect-rectangle", response_model=Dict[str, List[Dict[str, float]]])
 async def detect_rectangle_endpoint(
     file: UploadFile = File(...)
-):
-    if sys.platform != "darwin":
-        raise HTTPException(status_code=400, detail="This API works only on macOS")
+):  
     
     try:
         image_data = await file.read()
@@ -372,7 +354,6 @@ async def detect_rectangle_endpoint(
             return {"points": points}
             
         except ValueError as ve:
-            # If no document edges detected, return default points (5% margins)
             width, height = processed_image.size
             points = [
                 {"x": 0.05 * width, "y": 0.05 * height},
