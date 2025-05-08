@@ -297,9 +297,9 @@ correctButton.addEventListener('click', async () => {
         
         // Display info about the processed image
         resultInfo.innerHTML = `
-            <p><strong>ขนาด:</strong> ${data.width} x ${data.height} พิกเซล</p>
-            <p><strong>อัตราเร่ง:</strong> ${data.fast_rate.toFixed(2)}</p>
-            <p><strong>อัตราระบายความร้อน:</strong> ${data.rack_cooling_rate.toFixed(2)}</p>
+            <p><strong>Dimensions:</strong> ${data.width} x ${data.height} Pixel</p>
+            <p><strong>Fast rate:</strong> ${data.fast_rate.toFixed(2)}</p>
+            <p><strong>Rack cooling rate:</strong> ${data.rack_cooling_rate.toFixed(2)}</p>
         `;
     } catch (error) {
         showError(error.message);
