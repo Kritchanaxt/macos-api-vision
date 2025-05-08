@@ -6,7 +6,7 @@ def get_image_dimensions(image: Union[Image.Image, NSSize]) -> Dict[str, Any]:
     
     if isinstance(image, Image.Image):
         width, height = image.size
-    else:  # Assume NSSize
+    else:  
         width = image.width
         height = image.height
         

@@ -4,7 +4,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import io
 from PIL import Image
-import uvicorn
 import sys
 import os
 import base64
@@ -17,7 +16,6 @@ from app.ocr.engine import perform_ocr
 from app.face.quality_detection import detect_face_quality
 from app.card.detector import detect_card
 from app.utils.image_processing import convert_to_supported_format, pil_to_ci_image, ci_to_pil_image
-# Import from the separate modules for better organization
 from app.wrap.correct_perspective import correct_perspective
 from app.wrap.detect_rectangle import detect_document_edges
 from app.wrap.enhance_image import enhance_image
@@ -37,8 +35,8 @@ STATIC_FOLDER = "static"
 os.makedirs(STATIC_FOLDER, exist_ok=True)
 
 app = FastAPI(
-    title="Thai macOS Vision API",
-    description="API for Thai OCR, face quality detection, card detection, and perspective transformation using macOS Vision Framework",
+    title="macOS Vision API",
+    description="API for OCR, face quality detection, card detection, and perspective transformation using macOS Vision Framework",
     version="1.7.0"  
 )
 
@@ -68,14 +66,10 @@ async def get_output_file(filename: str):
 @app.post("/ocr", response_model=OCRResponse)
 async def ocr_endpoint(
     file: UploadFile = File(...),
-    languages: str = Form("th-TH,en-US"),  # Default: Thai and English
+    languages: str = Form("th-TH,en-US"),  
     recognition_level: str = Form("accurate"),
-    save_visualization: bool = Form(False)  # Option to save visualization with bounding boxes
-):
-    # Check operating system
-    if sys.platform != "darwin":
-        raise HTTPException(status_code=400, detail="This API works only on macOS")
-    
+    save_visualization: bool = Form(False)  
+):  
     try:
         # Read image file
         image_data = await file.read()
@@ -108,97 +102,12 @@ async def ocr_endpoint(
         if "visualization_image" in ocr_result:
             del ocr_result["visualization_image"]
         
-        # Create dimensions object
         dimensions = ImageDimensions(
             width=ocr_result["dimensions"]["width"],
             height=ocr_result["dimensions"]["height"],
             unit=ocr_result["dimensions"]["unit"]
         )
         
-        # Convert text_lines dict to TextLine objects
-        text_lines = {}
-        for key, line in ocr_result["text_lines"].items():
-            text_lines[key] = TextLine(
-                id=line["id"],
-                text=line["text"],
-                confidence=line["confidence"],
-                position=line["position"]
-            )
-        
-        return OCRResponse(
-            document_type=ocr_result["document_type"],
-            recognized_text=ocr_result["recognized_text"],
-            confidence=ocr_result["confidence"],
-            text_lines=text_lines,
-            dimensions=dimensions,
-            fast_rate=ocr_result["fast_rate"],
-            rack_cooling_rate=ocr_result["rack_cooling_rate"],
-            processing_time=ocr_result["processing_time"],
-            text_object_count=ocr_result["text_object_count"],
-            output_path=ocr_result["output_path"]
-        )
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing OCR: {str(e)}")
-
-@app.post("/ocr/base64", response_model=OCRResponse)
-async def ocr_base64_endpoint(
-    image_base64: str = Body(..., embed=True),
-    languages: str = Body("th-TH,en-US"),  # Default: Thai and English
-    recognition_level: str = Body("accurate"),
-    save_visualization: bool = Body(False)  # Option to save visualization with bounding boxes
-):
-    # Check operating system
-    if sys.platform != "darwin":
-        raise HTTPException(status_code=400, detail="This API works only on macOS")
-    
-    try:
-        # Decode base64 image
-        try:
-            # Remove data URI prefix if present
-            if "base64," in image_base64:
-                image_base64 = image_base64.split("base64,")[1]
-                
-            image_data = base64.b64decode(image_base64)
-            image = Image.open(io.BytesIO(image_data))
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid base64 image: {str(e)}")
-        
-        # Convert image to supported format
-        processed_image = convert_to_supported_format(image)
-        
-        # Split languages into list
-        language_list = [lang.strip() for lang in languages.split(",")]
-        
-        # Process OCR
-        ocr_result = perform_ocr(processed_image, language_list, recognition_level)
-
-        # Save image to output folder
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"ocr_{timestamp}_{uuid.uuid4().hex[:8]}.png"
-        output_path = os.path.join(OUTPUT_FOLDER, filename)
-        
-        # Save visualization if requested
-        if save_visualization and "visualization_image" in ocr_result:
-            ocr_result["visualization_image"].save(output_path)
-        else:
-            processed_image.save(output_path)
-        
-        # Add output_path to result
-        ocr_result["output_path"] = f"/output/{filename}"
-        
-        # Remove visualization_image from result before returning (not needed in response)
-        if "visualization_image" in ocr_result:
-            del ocr_result["visualization_image"]
-        
-        # Create dimensions object
-        dimensions = ImageDimensions(
-            width=ocr_result["dimensions"]["width"],
-            height=ocr_result["dimensions"]["height"],
-            unit=ocr_result["dimensions"]["unit"]
-        )
-        
-        # Convert text_lines dict to TextLine objects
         text_lines = {}
         for key, line in ocr_result["text_lines"].items():
             text_lines[key] = TextLine(
@@ -476,6 +385,3 @@ async def detect_rectangle_endpoint(
     except Exception as e:
         print(f"Error detecting rectangle: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error detecting rectangle: {str(e)}")
-
-if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

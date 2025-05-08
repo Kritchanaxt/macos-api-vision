@@ -10,7 +10,6 @@ except ImportError:
         from ocr.vision_ocr import process_image_with_vision
         from ocr.document_classifier import classify_document_type
     except ImportError:
-        # For direct testing
         from vision_ocr import process_image_with_vision
         from document_classifier import classify_document_type
 

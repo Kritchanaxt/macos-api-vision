@@ -14,8 +14,8 @@ def enhance_image(image: CIImage):
         unsharp = CIFilter.filterWithName_("CIUnsharpMask")
         if unsharp is not None:
             unsharp.setValue_forKey_(enhanced_image, "inputImage")
-            unsharp.setValue_forKey_(NSNumber.numberWithFloat_(0.7), "inputRadius")     # Medium radius
-            unsharp.setValue_forKey_(NSNumber.numberWithFloat_(0.7), "inputIntensity")  # Moderate intensity
+            unsharp.setValue_forKey_(NSNumber.numberWithFloat_(0.7), "inputRadius")     
+            unsharp.setValue_forKey_(NSNumber.numberWithFloat_(0.7), "inputIntensity")  
             
             output = unsharp.valueForKey_("outputImage")
             if output is not None:
@@ -34,8 +34,8 @@ def enhance_image(image: CIImage):
         noise_filter = CIFilter.filterWithName_("CINoiseReduction")
         if noise_filter is not None:
             noise_filter.setValue_forKey_(enhanced_image, "inputImage")
-            noise_filter.setValue_forKey_(NSNumber.numberWithFloat_(0.02), "inputNoiseLevel")  # Slightly stronger
-            noise_filter.setValue_forKey_(NSNumber.numberWithFloat_(0.65), "inputSharpness")   # Balance with sharpness
+            noise_filter.setValue_forKey_(NSNumber.numberWithFloat_(0.02), "inputNoiseLevel")  
+            noise_filter.setValue_forKey_(NSNumber.numberWithFloat_(0.65), "inputSharpness")  
             
             output = noise_filter.valueForKey_("outputImage")
             if output is not None:

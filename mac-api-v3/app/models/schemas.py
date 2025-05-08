@@ -53,8 +53,8 @@ class FaceQualityResponse(BaseModel):
 class CardDetectionResponse(BaseModel):
     has_card: bool
     card_count: int = 0
-    document_type: str = "id_card"  # เพิ่ม document_type
-    confidence: float = 0.0  # เพิ่ม confidence
+    document_type: str = "id_card"  
+    confidence: float = 0.0  
     position: Optional[Dict[str, Any]] = None
     dimensions: Optional[ImageDimensions] = None
     fast_rate: Optional[float] = None
