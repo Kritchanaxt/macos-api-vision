@@ -7,7 +7,7 @@ OCR mac api face quality detection Card detection and wrap perspective
 |--------------------|---------------------------------------------------------------------------------------------|
 | Name Project       | MAC API                                                                                     |
 | Main Goal          | OCR Mac, Face quality detection, Card detection, Wrap perspective                           |
-| Tools              | Vision Framework (macOS), CoreImage, PyObjC, FastAPI, OpenCV, NumPy, Pillow(PIL), Uvicorn |
+| Tools              | Vision Framework (macOS), CoreImage, PyObjC, FastAPI, NumPy, Pillow(PIL) |
 
 ---
 
@@ -50,27 +50,18 @@ git clone https://github.com/Kritchanaxt/macos-api-vision.git
 cd macos-api-vision
 ```
 
-### 2. สร้าง Virtual Environment (แนะนำ)
-```bash
-# สร้าง virtual environment
-python3 -m venv venv
-
-# เปิดใช้งาน virtual environment
-source venv/bin/activate
-```
-
-### 3. ติดตั้ง Dependencies
+### 2. ติดตั้ง Dependencies
 ```bash
 # ติดตั้ง packages ที่จำเป็น
 pip install -r requirements.txt
 ```
 
-### 4. ติดตั้ง Xcode Command Line Tools (ถ้ายังไม่ได้ติดตั้ง)
+### 3. ติดตั้ง Xcode Command Line Tools (ถ้ายังไม่ได้ติดตั้ง)
 ```bash
 xcode-select --install
 ```
 
-### 5. ตรวจสอบการติดตั้ง
+### 4. ตรวจสอบการติดตั้ง
 ```bash
 # ตรวจสอบ Python version
 python3 --version
@@ -86,9 +77,6 @@ python3 -c "import objc; print('PyObjC installed successfully')"
 ### เริ่มต้นใช้งาน API Server
 
 ```bash
-# เปิดใช้งาน virtual environment (ถ้ายังไม่ได้เปิด)
-source venv/bin/activate
-
 # รัน FastAPI server
 fastapi dev app/main.py
 ```
@@ -201,6 +189,31 @@ curl -X POST "http://localhost:8000/card-detect" \
   -F "save_visualization=true"
 ```
 
+**Response Example**:
+```json
+{
+  "has_card": true,
+  "card_count": 1,
+  "document_type": "id_card",
+  "confidence": 0.7,
+  "position": {
+    "x": 114.3058180063963,
+    "y": 38.604116678237915,
+    "width": 937.8973341733217,
+    "height": 1482.1484567150474
+  },
+  "dimensions": {
+    "width": 1170,
+    "height": 1564,
+    "unit": "pixel"
+  },
+  "fast_rate": 1.82988,
+  "rack_cooling_rate": 3.0074,
+  "processing_time": 0.287661075592041,
+  "output_path": "/output/card_20250823_222941_bc247d27.png"
+}
+```
+
 ### 4. Perspective Correction (Document Wrap)
 
 **Endpoint**: `POST /perspective`
@@ -294,28 +307,4 @@ chmod +x app/main.py
 ### 3. Vision Framework Errors
 - ตุรวจสอบว่าใช้ macOS 10.15 หรือใหม่กว่า
 - อาจต้อง restart terminal หลังติดตั้ง Xcode Command Line Tools
-
----
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/new-feature`
-3. Commit your changes: `git commit -am 'Add new feature'`
-4. Push to the branch: `git push origin feature/new-feature`
-5. Submit a Pull Request
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 📞 Support
-
-หากพบปัญหาหรือมีคำถาม:
-- เปิด [GitHub Issue](https://github.com/Kritchanaxt/macos-api-vision/issues)
-- ติดต่อผู้พัฒนา: [Kritchanaxt](https://github.com/Kritchanaxt)
 
