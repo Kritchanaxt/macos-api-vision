@@ -49,6 +49,12 @@ app.add_middleware(
 
 app.mount("/static", StaticFiles(directory=STATIC_FOLDER), name="static")
 
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for container orchestration"""
+    return {"status": "healthy", "version": "1.7.0"}
+
 @app.get("/")
 async def root():
     """Root endpoint to check if API is running"""
