@@ -2,9 +2,12 @@
 OCR mac api face quality detection Card detection and wrap perspective
 
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.104.1-009688?logo=fastapi&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
 ![macOS](https://img.shields.io/badge/macOS-10.15+-000000?logo=apple&logoColor=white)
 ![OpenCV](https://img.shields.io/badge/OpenCV-4.8.0-5C3EE8?logo=opencv&logoColor=white)
 ![Vision Framework](https://img.shields.io/badge/Vision_Framework-macOS-purple)
+![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)
+![CI/CD](https://img.shields.io/badge/CI/CD-GitHub_Actions-2088FF?logo=github-actions&logoColor=white)
 
 
 
@@ -97,6 +100,89 @@ API จะเริ่มทำงานที่: `http://localhost:8000`
 
 - **Swagger UI**: `http://localhost:8000/docs`
 - **ReDoc**: `http://localhost:8000/redoc`
+
+---
+
+## 🐳 Docker
+
+### Build Docker Image
+
+```bash
+# Build image
+docker build -t fastapi-docker-app .
+
+# Build with specific target
+docker build --target production -t fastapi-docker-app .
+```
+
+### Run Container
+
+```bash
+# Run container
+docker run -d --name fastapi-app -p 5000:5000 fastapi-docker-app
+
+# Run with environment variables
+docker run -d --name fastapi-app \
+  -p 5000:5000 \
+  -e ENV=production \
+  fastapi-docker-app
+
+# View logs
+docker logs -f fastapi-app
+```
+
+### Docker Compose (Optional)
+
+```yaml
+version: '3.8'
+services:
+  api:
+    build:
+      context: .
+      target: production
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+```
+
+---
+
+## 🔄 CI/CD Pipeline
+
+โปรเจ็กต์นี้ใช้ **GitHub Actions** สำหรับ CI/CD pipeline
+
+### Workflow Overview
+
+| Stage | Description | Trigger |
+|-------|-------------|---------|
+| **Build & Test** | ติดตั้ง dependencies และรัน tests | Push/PR to `main`, `develop` |
+| **Build Docker** | Build และ push Docker image ไปยัง Docker Hub | หลังจาก Build & Test สำเร็จ |
+| **Deploy DEV** | Deploy ไปยัง development environment | Push to `develop` |
+| **Deploy PROD** | Deploy ไปยัง production (ต้อง approval) | Push to `main` |
+| **Rollback** | Rollback ไปยัง version ก่อนหน้า | Manual trigger |
+
+### Environment Variables (GitHub Secrets)
+
+| Secret | Description |
+|--------|-------------|
+| `DOCKERHUB_USERNAME` | Docker Hub username |
+| `DOCKERHUB_TOKEN` | Docker Hub access token |
+| `N8N_WEBHOOK_URL` | n8n webhook URL สำหรับ notifications |
+
+### Manual Deployment
+
+```bash
+# Trigger workflow manually via GitHub CLI
+gh workflow run main.yml -f action="Build & Deploy"
+
+# Rollback to specific version
+gh workflow run main.yml -f action="Rollback" -f rollback_tag="dev-123" -f rollback_target="dev"
+```
 
 ---
 
@@ -315,6 +401,11 @@ macos-api-vision/
 │   ├── index.html
 │   ├── index.css
 │   └── index.js
+├── .github/
+│   └── workflows/
+│       └── main.yml         # GitHub Actions CI/CD workflow
+├── Dockerfile               # Docker build configuration
+├── .gitignore               # Git ignore patterns
 ├── requirements.txt         # Python dependencies
 ├── pytest.ini              # Pytest configuration
 └── README.md               # This documentation
@@ -432,6 +523,33 @@ pip3 install pytest httpx
 - **Default Languages**: `th-TH,en-US`
 - **Recognition Levels**: `fast`, `accurate`
 
+### Docker Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PYTHONDONTWRITEBYTECODE` | `1` | ไม่สร้าง `.pyc` files |
+| `PYTHONUNBUFFERED` | `1` | Output ไม่ถูก buffer |
+
+---
+
+## 🏥 Health Check
+
+API มี health check endpoint สำหรับ container orchestration:
+
+```bash
+# Check health status (Docker)
+curl http://localhost:5000/health
+
+# Check health status (Local development)
+curl http://localhost:8000/health
+
+# Response
+{
+  "status": "healthy",
+  "version": "1.7.0"
+}
+```
+
 ---
 
 ## 🤝 Contributing
@@ -441,12 +559,6 @@ pip3 install pytest httpx
 3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License.
 
 ---
 
