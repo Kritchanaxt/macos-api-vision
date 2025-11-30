@@ -1,6 +1,13 @@
 # macos-api-vision
 OCR mac api face quality detection Card detection and wrap perspective
 
+![FastAPI](https://img.shields.io/badge/FastAPI-0.104.1-009688?logo=fastapi&logoColor=white)
+![macOS](https://img.shields.io/badge/macOS-10.15+-000000?logo=apple&logoColor=white)
+![OpenCV](https://img.shields.io/badge/OpenCV-4.8.0-5C3EE8?logo=opencv&logoColor=white)
+![Vision Framework](https://img.shields.io/badge/Vision_Framework-macOS-purple)
+
+
+
 ## Project Summary
 
 | Category           | Details                                                                                     |
@@ -53,7 +60,7 @@ cd macos-api-vision
 ### 2. ติดตั้ง Dependencies
 ```bash
 # ติดตั้ง packages ที่จำเป็น
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 ```
 
 ### 3. ติดตั้ง Xcode Command Line Tools (ถ้ายังไม่ได้ติดตั้ง)
@@ -77,8 +84,11 @@ python3 -c "import objc; print('PyObjC installed successfully')"
 ### เริ่มต้นใช้งาน API Server
 
 ```bash
-# รัน FastAPI server
-fastapi dev app/main.py
+# รัน FastAPI server ด้วย uvicorn
+python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# หรือใช้คำสั่งสั้น
+uvicorn app.main:app --reload
 ```
 
 API จะเริ่มทำงานที่: `http://localhost:8000`
@@ -267,15 +277,46 @@ macos-api-vision/
 ├── app/
 │   ├── main.py              # FastAPI main application
 │   ├── card/                # Card detection module
+│   │   ├── __init__.py
+│   │   └── detector.py      # Card/rectangle detection logic
 │   ├── face/                # Face quality detection module
+│   │   ├── __init__.py
+│   │   └── quality_detection.py  # Face detection and quality analysis
 │   ├── models/              # Pydantic schemas
+│   │   ├── __init__.py
+│   │   └── schemas.py       # Response/Request models
 │   ├── ocr/                 # OCR engine and document classifier
+│   │   ├── __init__.py
+│   │   ├── document_classifier.py  # Document type classification
+│   │   ├── engine.py        # OCR processing engine
+│   │   └── vision_ocr.py    # macOS Vision OCR integration
 │   ├── utils/               # Utility functions
+│   │   ├── __init__.py
+│   │   ├── image_processing.py  # Image format conversion
+│   │   └── image_utils.py   # Image dimension utilities
 │   └── wrap/                # Perspective correction module
+│       ├── __init__.py
+│       ├── correct_perspective.py  # Perspective transformation
+│       ├── detect_rectangle.py     # Document edge detection
+│       └── enhance_image.py        # Image enhancement filters
+├── tests/                   # Unit tests
+│   ├── __init__.py
+│   ├── conftest.py          # Pytest fixtures
+│   ├── test_api_endpoints.py     # API endpoint tests
+│   ├── test_document_classifier.py  # Document classifier tests
+│   ├── test_image_processing.py  # Image processing tests
+│   ├── test_image_utils.py       # Image utility tests
+│   ├── test_ocr_engine.py        # OCR engine tests
+│   └── test_schemas.py           # Schema validation tests
 ├── output/                  # Generated output files
 ├── static/                  # Static files for web interface
+│   └── index.html           # API welcome page
 ├── web-wrap-perspective/    # Web interface for perspective correction
+│   ├── index.html
+│   ├── index.css
+│   └── index.js
 ├── requirements.txt         # Python dependencies
+├── pytest.ini              # Pytest configuration
 └── README.md               # This documentation
 ```
 
@@ -308,3 +349,108 @@ chmod +x app/main.py
 - ตุรวจสอบว่าใช้ macOS 10.15 หรือใหม่กว่า
 - อาจต้อง restart terminal หลังติดตั้ง Xcode Command Line Tools
 
+---
+
+## 🧪 Testing
+
+### รัน Unit Tests
+
+```bash
+# รัน tests ทั้งหมด
+python3 -m pytest tests/ -v
+
+# รัน tests เฉพาะไฟล์
+python3 -m pytest tests/test_schemas.py -v
+
+# รัน tests พร้อม coverage report
+python3 -m pytest tests/ -v --cov=app
+```
+
+### Test Summary
+
+| ไฟล์ Test | จำนวน Tests | ทดสอบ |
+|-----------|-------------|-------|
+| `test_schemas.py` | 18 | Pydantic schemas validation |
+| `test_image_utils.py` | 15 | Image dimension & rate calculations |
+| `test_document_classifier.py` | 24 | Document type classification (ID, Passport, etc.) |
+| `test_ocr_engine.py` | 10 | OCR text line organization |
+| `test_image_processing.py` | 15 | Image format conversion & resizing |
+| `test_api_endpoints.py` | 19 | FastAPI endpoints integration |
+| **รวม** | **101** | - |
+
+### ติดตั้ง Testing Dependencies
+
+```bash
+pip3 install pytest httpx
+```
+
+---
+
+## 📊 API Response Models
+
+### OCRResponse
+| Field | Type | Description |
+|-------|------|-------------|
+| `document_type` | string | ประเภทเอกสาร (card_id, passport, driving_license, unknown) |
+| `recognized_text` | string | ข้อความที่ OCR ได้ |
+| `confidence` | float | ความมั่นใจ (0.0-1.0) |
+| `text_lines` | Dict | บรรทัดข้อความพร้อมตำแหน่ง |
+| `dimensions` | ImageDimensions | ขนาดภาพ |
+| `processing_time` | float | เวลาประมวลผล (วินาที) |
+
+### FaceQualityResponse
+| Field | Type | Description |
+|-------|------|-------------|
+| `has_face` | bool | พบใบหน้าหรือไม่ |
+| `face_count` | int | จำนวนใบหน้าที่พบ |
+| `quality_score` | float | คะแนนคุณภาพใบหน้า (0.0-1.0) |
+| `position` | Dict | ตำแหน่งใบหน้า |
+| `dimensions` | ImageDimensions | ขนาดภาพ |
+
+### CardDetectionResponse
+| Field | Type | Description |
+|-------|------|-------------|
+| `has_card` | bool | พบบัตรหรือไม่ |
+| `card_count` | int | จำนวนบัตรที่พบ |
+| `document_type` | string | ประเภทเอกสาร |
+| `confidence` | float | ความมั่นใจ (0.0-1.0) |
+| `position` | Dict | ตำแหน่งบัตร |
+
+---
+
+## 🔧 Configuration
+
+### Image Processing Settings
+
+ใน `app/utils/image_processing.py`:
+- **Max Dimension**: 4000 pixels (ปรับได้)
+- **Supported Modes**: RGB, RGBA
+
+### OCR Settings
+
+ใน `/ocr` endpoint:
+- **Default Languages**: `th-TH,en-US`
+- **Recognition Levels**: `fast`, `accurate`
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License.
+
+---
+
+## 👨‍💻 Author
+
+**Kritchanaxt**
+- GitHub: [@Kritchanaxt](https://github.com/Kritchanaxt)

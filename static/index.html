@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>macOS Vision API</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 800px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+        .version {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            margin-bottom: 30px;
+        }
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .feature {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .feature:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        .feature-icon {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        .feature h3 {
+            color: #333;
+            margin-bottom: 5px;
+        }
+        .feature p {
+            color: #666;
+            font-size: 0.9em;
+        }
+        .links {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #5a6fd6;
+        }
+        .btn-secondary {
+            background: #f8f9fa;
+            color: #333;
+            border: 2px solid #e9ecef;
+        }
+        .btn-secondary:hover {
+            border-color: #667eea;
+            color: #667eea;
+        }
+        .endpoints {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 1px solid #e9ecef;
+        }
+        .endpoints h2 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+        .endpoint {
+            display: flex;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .method {
+            background: #28a745;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-right: 10px;
+            min-width: 50px;
+            text-align: center;
+        }
+        .path {
+            font-family: monospace;
+            color: #667eea;
+        }
+        .desc {
+            color: #666;
+            margin-left: auto;
+            font-size: 0.9em;
+        }
+        @media (max-width: 600px) {
+            .endpoint {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 5px;
+            }
+            .desc {
+                margin-left: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🍎 macOS Vision API</h1>
+        <p class="subtitle">OCR, Face Quality Detection, Card Detection & Perspective Correction</p>
+        <span class="version">v1.7.0</span>
+        
+        <div class="features">
+            <div class="feature">
+                <div class="feature-icon">📝</div>
+                <h3>OCR</h3>
+                <p>ตรวจจับข้อความ รองรับภาษาไทย-อังกฤษ</p>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">👤</div>
+                <h3>Face Quality</h3>
+                <p>ตรวจจับใบหน้าและวัดคุณภาพ</p>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">💳</div>
+                <h3>Card Detection</h3>
+                <p>ตรวจจับบัตรประชาชน/เอกสาร</p>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">🔲</div>
+                <h3>Perspective</h3>
+                <p>แก้ไขมุมมองภาพเอกสาร</p>
+            </div>
+        </div>
+        
+        <div class="links">
+            <a href="/docs" class="btn btn-primary">📚 Swagger UI</a>
+            <a href="/redoc" class="btn btn-secondary">📖 ReDoc</a>
+        </div>
+        
+        <div class="endpoints">
+            <h2>API Endpoints</h2>
+            <div class="endpoint">
+                <span class="method">POST</span>
+                <span class="path">/ocr</span>
+                <span class="desc">OCR Text Recognition</span>
+            </div>
+            <div class="endpoint">
+                <span class="method">POST</span>
+                <span class="path">/face-quality</span>
+                <span class="desc">Face Quality Detection</span>
+            </div>
+            <div class="endpoint">
+                <span class="method">POST</span>
+                <span class="path">/card-detect</span>
+                <span class="desc">Card/Document Detection</span>
+            </div>
+            <div class="endpoint">
+                <span class="method">POST</span>
+                <span class="path">/perspective</span>
+                <span class="desc">Perspective Correction</span>
+            </div>
+            <div class="endpoint">
+                <span class="method">POST</span>
+                <span class="path">/perspective/detect-rectangle</span>
+                <span class="desc">Auto Detect Document Edges</span>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
