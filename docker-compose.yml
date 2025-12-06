@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # ===========================================
+  # FastAPI Application Service
+  # ===========================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: kritchanaxt/fastapi-docker-app:latest
+    container_name: fastapi-vision-api
+    ports:
+      - "5000:5000"
+    environment:
+      - ENV=production
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Mount output folder for generated files
+      - ./output:/app/output
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 30s
+      start_period: 10s
+      retries: 3
+    networks:
+      - vision-network
+
+  # ===========================================
+  # Development Service (Optional)
+  # ===========================================
+  api-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dependencies
+    container_name: fastapi-vision-api-dev
+    ports:
+      - "5001:5000"
+    environment:
+      - ENV=development
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Mount source code for hot reload
+      - ./app:/app/app
+      - ./static:/app/static
+      - ./output:/app/output
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "5000", "--reload"]
+    restart: unless-stopped
+    profiles:
+      - dev
+    networks:
+      - vision-network
+
+networks:
+  vision-network:
+    driver: bridge
+
+volumes:
+  output:
+    driver: local

@@ -131,24 +131,44 @@ docker run -d --name fastapi-app \
 docker logs -f fastapi-app
 ```
 
-### Docker Compose (Optional)
+### Docker Compose
 
-```yaml
-version: '3.8'
-services:
-  api:
-    build:
-      context: .
-      target: production
-    ports:
-      - "5000:5000"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
-      interval: 30s
-      timeout: 30s
-      retries: 3
+โปรเจ็กต์มีไฟล์ `docker-compose.yml` พร้อมใช้งาน:
+
+**Production Mode:**
+```bash
+# Start production service
+docker-compose up -d
+
+# View logs
+docker-compose logs -f api
+
+# Stop services
+docker-compose down
 ```
+
+**Development Mode (Hot Reload):**
+```bash
+# Start development service with hot reload
+docker-compose --profile dev up api-dev
+
+# Run both production and development
+docker-compose --profile dev up -d
+```
+
+**Services Overview:**
+
+| Service | Port | Description |
+|---------|------|-------------|
+| `api` | `5000` | Production - optimized, no hot reload |
+| `api-dev` | `5001` | Development - hot reload enabled |
+
+**Docker Compose Features:**
+- ✅ Health check ทุก 30 วินาที
+- ✅ Auto restart เมื่อ container crash
+- ✅ Volume mount สำหรับ output files
+- ✅ Development mode with hot reload
+- ✅ Network isolation
 
 ---
 
@@ -405,6 +425,7 @@ macos-api-vision/
 │   └── workflows/
 │       └── main.yml         # GitHub Actions CI/CD workflow
 ├── Dockerfile               # Docker build configuration
+├── docker-compose.yml       # Docker Compose configuration
 ├── .gitignore               # Git ignore patterns
 ├── requirements.txt         # Python dependencies
 ├── pytest.ini              # Pytest configuration
