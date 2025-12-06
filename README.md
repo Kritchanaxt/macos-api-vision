@@ -42,6 +42,33 @@ OCR mac api face quality detection Card detection and wrap perspective
 
 ---
 
+## 🖥️ Platform Support
+
+> ⚠️ **สำคัญ**: โปรเจ็กต์นี้ใช้ **macOS Vision Framework** ซึ่งเป็น Native API ของ Apple จึงรองรับเฉพาะ macOS เท่านั้น
+
+| Platform | Support | หมายเหตุ |
+|----------|---------|----------|
+| macOS (Local) | ✅ รองรับ | แนะนำ - ใช้งานได้เต็มประสิทธิภาพ |
+| macOS (GitHub Actions) | ✅ รองรับ | ใช้ `runs-on: macos-latest` |
+| Docker (Linux) | ❌ ไม่รองรับ | ไม่มี Vision Framework |
+| Windows | ❌ ไม่รองรับ | ไม่มี Vision Framework |
+| Linux | ❌ ไม่รองรับ | ไม่มี Vision Framework |
+
+### ทำไมไม่รองรับ Docker/Linux/Windows?
+
+โปรเจ็กต์นี้ใช้ Native macOS APIs ต่อไปนี้:
+
+| Module | macOS API | ฟังก์ชัน |
+|--------|-----------|----------|
+| OCR | `VNRecognizeTextRequest` | ตรวจจับข้อความ |
+| Face Detection | `VNDetectFaceRectanglesRequest` | ตรวจจับใบหน้า |
+| Card Detection | `VNDetectRectanglesRequest` | ตรวจจับบัตร/เอกสาร |
+| Perspective | `CIPerspectiveCorrection` | แก้ไขมุมภาพ |
+
+APIs เหล่านี้เป็นส่วนหนึ่งของ **Vision Framework** และ **Core Image** ที่มีเฉพาะบน macOS/iOS เท่านั้น
+
+---
+
 ## 📋 System Requirements
 
 - **Operating System**: macOS 10.15 (Catalina) หรือใหม่กว่า
